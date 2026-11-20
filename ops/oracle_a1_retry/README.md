@@ -6,7 +6,7 @@ Status (2026-11-20): `bob-oracle-a1-retry` als Cloudflare Worker veröffentlicht
 
 - Cloudflare Cron läuft serverseitig unabhängig von Samsung und Oracle Cloud Shell.
 - Nur `eu-zurich-1`, OCI Resource Manager: übernimmt **ausschließlich** den zuvor geprüften Terraform-Plan (`FROM_PLAN_JOB_ID`).
-- Stoppt bei laufenden Jobs, bei bereits erfolgreich abgeschlossenem Apply, unbekannten Fehlern, kaputtem/fehlendem Plan und unklaren Zuständen.
+- Stoppt bei laufenden Jobs, bei einer im aktuellen Stack-State belegten Compute-Instanz, unbekannten Fehlern, kaputtem/fehlendem Plan und unklaren Zuständen. Ein älterer erfolgreicher reiner Netzwerk-Apply gilt ausdrücklich nicht als Beweis einer erstellten VM. Wenn `GetStackTfState` nicht lesbar oder ungültig ist, gibt es keinen neuen Apply.
 - Wiederholt frühestens nach 25 Minuten und nur nach einem im letzten Apply-Log bestätigten Oracle-Kapazitätsfehler. Die Cron-Triggers liegen 30 Minuten auseinander.
 - Ein deterministischer `opc-retry-token` pro fehlgeschlagenem Apply und geprüftem Plan reduziert das Risiko doppelter Jobs bei zeitgleich ausgeführten Worker-Instanzen. OCI bewahrt Retry-Tokens bis zu 24 Stunden; nach diesem Zeitraum ist das kein dauerhafter globaler Lock. Die Wartezeit beginnt am OCI-Feld `timeFinished` (Ende des Fehlversuchs), nicht bei `timeCreated`. Fehlende oder ungültige Abschlusszeitstempel sperren neue Applies.
 - Keine Echtgeldausführung, keine neuen Handelsberechtigungen, keine Änderungen am bestehenden Cloudflare-Bob-Wächter.
@@ -26,7 +26,7 @@ Im Cloudflare-Dashboard unter **Workers & Pages > bob-oracle-a1-retry > Settings
 | `OCI_STACK_OCID` | Secret | OCID des bestehenden geprüften Resource-Manager-Stacks |
 | `OCI_PLAN_JOB_OCID` | Secret | OCID des bereits geprüften erfolgreichen Plan-Jobs |
 
-Die private Schlüsseldatei ist **kein** Oracle-/DEGIRO-PIN und darf nicht in Bob-Logs, Chat-Nachrichten oder GitHub stehen. Bei PKCS#1 den Schlüssel lokal sicher nach PKCS#8 konvertieren (z. B. `openssl pkcs8 -topk8 -nocrypt`). Nur API-Rechte für den vorhandenen Oracle Resource-Manager-Stack und dessen Jobs einrichten (OCI benötigt `ORM_JOB_MANAGE` und `ORM_STACK_USE`).
+Die private Schlüsseldatei ist **kein** Oracle-/DEGIRO-PIN und darf nicht in Bob-Logs, Chat-Nachrichten oder GitHub stehen. Bei PKCS#1 den Schlüssel lokal sicher nach PKCS#8 konvertieren (z. B. `openssl pkcs8 -topk8 -nocrypt`). Nur API-Rechte für den vorhandenen Oracle Resource-Manager-Stack und dessen Jobs einrichten (OCI benötigt `ORM_JOB_MANAGE`, `ORM_STACK_USE` und zum Prüfen des aktuellen Terraform-States `ORM_STACK_READ`).
 
 Die drei Standardschalter bleiben bis zur abgeschlossenen Prüfung **false**:
 `ENABLED`, `ALLOW_APPLY`, `PLAN_VERIFIED_ALWAYS_FREE`.
