@@ -634,6 +634,9 @@ class MorningReadPolicyTest {
             safe.map { if(it==search)it.copy(parent=3) else it },
             safe+MorningReadPolicy.Node("Suche",clickable=true),
             safe.filterNot { it.text=="Hebelprodukte" },
+            safe.filterNot { it.text=="Top Ergebnisse" || it==gold },
+            safe.filterNot { it.text=="Märkte" || it.text=="Top Ergebnisse" },
+            safe+MorningReadPolicy.Node("Orderübersicht"),
             safe.map { if(it==search)it.copy(row="Suche\\nKaufen") else it }
         ).withIndex()) {
             val decision=MorningReadPolicy.localResearchDecision(
@@ -719,6 +722,9 @@ class MorningReadPolicyTest {
             safe.map { if(it==search)it.copy(parent=3) else it },
             safe+MorningReadPolicy.Node("Suche",clickable=true),
             safe.filterNot { it.text=="Hebelprodukte" },
+            safe.filterNot { it.text=="Top Ergebnisse" || it==gold },
+            safe.filterNot { it.text=="Märkte" || it.text=="Top Ergebnisse" },
+            safe+MorningReadPolicy.Node("Orderübersicht"),
             safe.map { if(it==search)it.copy(row="Suche\\nKaufen") else it }
         )
         assertEquals(MorningReadPolicy.Kind.BLOCK,
