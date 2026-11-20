@@ -789,6 +789,69 @@ internal object MorningReadPolicy {
         return innermost(nodes,candidates).singleOrNull()
     }
 
+    /** For an owner-started quarantined 9/10 local research run, only
+     * SCROLL_BACKWARD on the already observed Gold product-list container.
+     * The original 10/10 listReturnScrollTarget gate remains unchanged.
+     *
+     * This returns a container index, NEVER an input, order, product or
+     * broker-approval target. Caller revalidates window/session/unlock.
+     */
+    fun quarantinedGoldReturnScrollTarget(
+        nodes:List<Node>,backwardIndices:Set<Int>,localCandidates:Set<String>
+    ):Int? {
+        if(localCandidates.size !in 1..10 ||
+            localCandidates.any { !SeriesEvidence.validIsin(it) } ||
+            nodes.isEmpty() || nodes.size>500 ||
+            nodes.any { it.editable || it.containsInput || it.password || it.sensitive } ||
+            genericTurboDirectory(nodes)) return null
+        val cause=protection(nodes)
+        if(cause!=null) {
+            if(cause!="PROTECTED_ORDER_CONFIRM") return null
+            // The old 10930 reader already knew this isolated launcher.
+            // Re-check it only to authorize a LIST SCROLL, not an order click.
+            val synthetic=nodes+Node("Gold",id="bob:search_input",editable=true)
+            val cleaned=productSearchWithoutLauncher(synthetic) ?: return null
+            if(protection(cleaned)!=null) return null
+            val markers=nodes.indices.filter { i ->
+                listOf(nodes[i].text,nodes[i].description,nodes[i].hint)
+                    .any(orderMarkers.first().second::containsMatchIn)
+            }
+            val index=markers.singleOrNull() ?: return null
+            val launcher=nodes[index]
+            val exact=Regex("(?iu)^order platzieren$")
+            if(!canClick(launcher) || launcher.editable || launcher.containsInput ||
+                listOf(launcher.text,launcher.description,launcher.hint)
+                    .filter(String::isNotBlank).any { !exact.matches(normalized(it)) } ||
+                launcher.row.lines().filter(String::isNotBlank).any {
+                    !exact.matches(normalized(it))
+                }) return null
+            fun descends(child:Int,ancestor:Int):Boolean {
+                var p=nodes[child].parent; var steps=0
+                while(p in nodes.indices && steps++<nodes.size) {
+                    if(p==ancestor)return true
+                    p=nodes[p].parent
+                }
+                return false
+            }
+            if(nodes.indices.any { it!=index && descends(it,index) }) return null
+            var p=launcher.parent; var hops=0
+            while(p in nodes.indices && hops++<nodes.size) {
+                if(ids.containsMatchIn(nodes[p].text.uppercase()))return null
+                p=nodes[p].parent
+            }
+        }
+        val visible=captureGoldList(nodes,true)
+        if(visible.kind!=Kind.COLLECT || visible.isins.isEmpty() ||
+            visible.isins.any { it !in localCandidates }) return null
+        val candidates=backwardIndices.filter { i ->
+            i in nodes.indices && nodes[i].enabled &&
+                !nodes[i].editable && !nodes[i].containsInput &&
+                !nodes[i].password && !nodes[i].sensitive &&
+                visible.isins.any { nodes[i].row.contains(it) }
+        }
+        return innermost(nodes,candidates).singleOrNull()
+    }
+
     /** Continue only an already captured Top Results list. The search header may
      * scroll out of the accessibility tree. A synthetic context node is used only
      * for policy validation; no action can target it or any product row. */
