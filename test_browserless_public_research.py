@@ -10,7 +10,40 @@ import browserless_public_research as b
 class PublicBrowserlessTests(unittest.TestCase):
     def setUp(self):
         b._RESERVED.clear()
+        b._LAST_PROVIDER_ERRORS.clear()
         self.now = datetime(2026, 11, 19, 20, 0, tzinfo=timezone.utc)
+
+    def test_http_403_rejection_exposes_safe_status_then_duplicate_replays_only_status(self):
+        response = MagicMock()
+        response.status_code = 403
+        with patch.dict(os.environ, {"BROWSERLESS_API_TOKEN": "private-secret",
+                                     "BOB_BROWSERLESS_PUBLIC_RESEARCH": "1",
+                                     "BOB_BROWSERLESS_FREE_ACCOUNT_CONFIRMED": "1"}), \
+                patch.object(b.requests, "post") as post:
+            post.return_value.__enter__.return_value = response
+            first = b.extract("DE000FB0A490", now=self.now)
+            second = b.extract("DE000FB0A490", now=self.now)
+        self.assertEqual(post.call_count, 1)
+        self.assertEqual(first["state"], "provider-unavailable")
+        self.assertEqual(second["state"], "already-attempted")
+        for result in (first, second):
+            self.assertEqual(result["diagnostics"]["providerHttpStatus"], 403)
+            self.assertEqual(result["diagnostics"]["providerErrorCategory"], "region-or-permission")
+            self.assertEqual(result["diagnostics"]["providerRegion"], "sfo")
+            self.assertFalse(result["diagnostics"]["providerRetryStarted"])
+            self.assertFalse(result["eligible"])
+            self.assertFalse(result["tradeApproved"])
+            self.assertEqual(result["fields"], {})
+            self.assertNotIn("private-secret", json.dumps(result))
+
+    def test_http_error_classification_is_closed(self):
+        expected = {400: "invalid-request", 401: "authentication-or-plan",
+                    402: "payment-or-quota", 403: "region-or-permission",
+                    404: "endpoint-not-found", 408: "timeout",
+                    429: "rate-limit", 503: "provider-server-error"}
+        for status, category in expected.items():
+            self.assertEqual(b._http_error_category(status), category)
+        self.assertEqual(b._http_error_category("403"), "unknown")
 
     def test_no_secret_does_not_call_cloud(self):
         with patch.dict(os.environ, {"BOB_BROWSERLESS_PUBLIC_RESEARCH": "1",
@@ -81,7 +114,7 @@ Gold
             self.assertFalse(result["aiExtractionUsed"])
             self.assertFalse(result["tradeApproved"])
             self.assertFalse(result["originalQuoteTimeVerified"])
-            self.assertEqual(post.call_args.args[0],b.API_EU)
+            self.assertEqual(post.call_args.args[0],b.API)
             self.assertEqual(post.call_args.kwargs["json"]["formats"],["markdown","rawText"])
             self.assertNotIn("jsonOptions",post.call_args.kwargs["json"])
             self.assertEqual(post.call_args.kwargs["json"]["proxy"],"datacenter")
@@ -193,7 +226,7 @@ Knock-Out-Barriere
         self.assertEqual(result["state"],"identity-not-proven")
         self.assertTrue(result["diagnostics"]["hasExactIsinInRawHtmlOnly"])
         self.assertFalse(result["diagnostics"]["hasExactIsinInRawTextOnly"])
-        self.assertEqual(result["diagnostics"]["browserlessRegion"],"ams")
+        self.assertEqual(result["diagnostics"]["browserlessRegion"],"sfo")
         self.assertEqual(result["diagnostics"]["strategyAttempted"],["http-fetch","http-proxy","browser"])
         self.assertEqual(result["diagnostics"]["sourceTitleClass"],"issuer-generic")
         self.assertFalse(result["tradeApproved"])
