@@ -1301,6 +1301,8 @@ class ProductReadService : AccessibilityService() {
         if(localResearchOwnerLoginWaiting &&
             localResearchLoginTicket==PhoneRemote.sessionId())
             return observation("LOCAL_RESEARCH_OWNER_LOGIN_REQUIRED")
+        if(localResearchGoldRebuilding && PhoneRemote.active())
+            return observation("LOCAL_RESEARCH_GOLD_SEARCH_REBUILDING")
         // One remotely requested, hard-coded, non-secret Termux help probe.
         // The user must have started this time-limited handset session and
         // granted Android permission. Never run an arbitrary shell command or
