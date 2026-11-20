@@ -596,6 +596,53 @@ class MorningReadPolicyTest {
         assertEquals("RESULT_MISSING",MorningReadPolicy.decide(view,target).code)
         assertEquals(4,MorningReadPolicy.resultTapIndex(view,target))
     }
+    @Test fun quarantinedGoldResearchRecoversOnlyIsolatedMarketsSearchNextToLauncher() {
+        val target="DE000SQ02JQ6"
+        val gold=MorningReadPolicy.Node("SG Gold Turbo Mini Call $target",
+            row="SG Gold Turbo Mini Call $target")
+        val launcher=MorningReadPolicy.Node("Order platzieren",clickable=true,
+            row="Order platzieren")
+        val markets=listOf(
+            MorningReadPolicy.Node("Märkte"),
+            MorningReadPolicy.Node("Hebelprodukte",selected=true),
+            MorningReadPolicy.Node("Top Ergebnisse"),gold,
+            MorningReadPolicy.Node("K",clickable=true),
+            MorningReadPolicy.Node("V",clickable=true),
+            launcher)
+        val search=MorningReadPolicy.Node("Suche",clickable=true,row="Suche")
+        val safe=markets+search
+        val action=MorningReadPolicy.localResearchDecision(
+            safe,target,keyboardReady=false,resultOpened=false)
+        assertEquals(MorningReadPolicy.Kind.SEARCH,action.kind)
+        assertEquals(safe.lastIndex,action.index)
+        assertEquals(MorningReadPolicy.Kind.WAIT,
+            MorningReadPolicy.localResearchDecision(
+                markets,target,keyboardReady=false,resultOpened=false).kind)
+        for((i,unsafe) in listOf(
+            safe+MorningReadPolicy.Node("Order bestätigen"),
+            safe+MorningReadPolicy.Node("Orderart"),
+            safe+MorningReadPolicy.Node("Limitpreis"),
+            safe+MorningReadPolicy.Node("Stückzahl"),
+            safe+MorningReadPolicy.Node("PIN",password=true),
+            safe+MorningReadPolicy.Node("",sensitive=true),
+            safe+MorningReadPolicy.Node("Kaufbetrag",editable=true),
+            safe+launcher,
+            safe.map { if(it==launcher)it.copy(clickable=false) else it },
+            safe.map { if(it==launcher)it.copy(row="Order platzieren\\nKauf") else it },
+            safe.map { if(it==launcher)it.copy(parent=3) else it },
+            safe+MorningReadPolicy.Node("Suche",clickable=true),
+            safe.filterNot { it.text=="Hebelprodukte" },
+            safe.filterNot { it.text=="Top Ergebnisse" },
+            safe.filterNot { it.text=="Märkte" },
+            safe.filterNot { it==gold },
+            safe.map { if(it==search)it.copy(row="Suche\\nKaufen") else it }
+        ).withIndex()) {
+            val decision=MorningReadPolicy.localResearchDecision(
+                unsafe,target,keyboardReady=false,resultOpened=false)
+            assertEquals("unsafe Gold launcher view $i",MorningReadPolicy.Kind.BLOCK,decision.kind)
+        }
+    }
+
     @Test fun isolatedGlobalOrderLauncherCannotBlockSafeResultTitle() {
         val target="DE000SQ02JQ6"
         val original=samsungSearchResult()
