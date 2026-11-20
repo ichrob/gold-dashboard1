@@ -9,7 +9,7 @@ assert.equal(validate({}).status,'disabled');
 assert.equal(validate({...e,OCI_PRIVATE_KEY_PEM:''}).status,'configuration_required');
 const failed={id:'ocid1.ormjob.oc1..last',operation:'APPLY',lifecycleState:'FAILED',timeCreated:new Date(Date.now()-7200000).toISOString(),timeFinished:new Date(Date.now()-3600000).toISOString()};
 let writes=0, tokens=[];
-function mock(jobs,text='Out of host capacity'){
+function mock(jobs,text='Out of host capacity',vmPresent=false,stateStatus=200){
   writes=0; tokens=[];
   globalThis.fetch=async (url,opts)=>{
     const p=new URL(url).pathname;
@@ -17,14 +17,31 @@ function mock(jobs,text='Out of host capacity'){
     if(opts.method==='POST'){writes++;tokens.push(opts.headers['opc-retry-token']);result={id:'ocid1.ormjob.oc1..created'};}
     else if(p.endsWith('/jobs'))result=jobs;
     else if(p.endsWith('/logs/content'))result=text;
+    else if(p.endsWith('/tfState')){
+      if(stateStatus!==200)return new Response('state unavailable',{status:stateStatus});
+      result={version:4,resources:[
+        {mode:'managed',type:'oci_core_vcn',name:'bob',instances:[{attributes:{id:'ocid1.vcn.oc1..test'}}]},
+        ...(vmPresent?[{mode:'managed',type:'oci_core_instance',name:'bob',instances:[{attributes:{id:'ocid1.instance.oc1..test'}}]}]:[])
+      ]};
+    }
     else result={id:e.OCI_PLAN_JOB_OCID,operation:'PLAN',lifecycleState:'SUCCEEDED',stackId:e.OCI_STACK_OCID};
     return new Response(typeof result==='string'?result:JSON.stringify(result),{headers:{'content-type':typeof result==='string'?'text/plain':'application/json'}});
   };
 }
-mock([{...failed,lifecycleState:'SUCCEEDED'}]);assert.equal((await run(e)).status,'already_succeeded');assert.equal(writes,0);
+mock([{...failed,lifecycleState:'SUCCEEDED'}]);assert.equal((await run(e)).status,'non_failed_last_apply');assert.equal(writes,0);
 mock([{...failed,lifecycleState:'IN_PROGRESS'}]);assert.equal((await run(e)).status,'job_in_progress');assert.equal(writes,0);
 mock([failed],'Unauthorized');assert.equal((await run(e)).status,'not_a_capacity_failure');assert.equal(writes,0);
 mock([failed]);assert.equal((await run(e)).status,'apply_submitted');assert.equal(writes,1);
+// A historical network-only Apply must not mask a newer capacity failure.
+const olderSuccess={...failed,id:'ocid1.ormjob.oc1..older',lifecycleState:'SUCCEEDED',timeCreated:new Date(Date.now()-10800000).toISOString()};
+mock([olderSuccess,failed]);
+assert.equal((await run(e)).status,'apply_submitted');assert.equal(writes,1);
+// A server already recorded in stack state always blocks another Apply.
+mock([failed],'Out of host capacity',true);
+assert.equal((await run(e)).status,'instance_present');assert.equal(writes,0);
+// No readable/valid Terraform state means no authority to provision.
+mock([failed],'Out of host capacity',false,403);
+assert.equal((await run(e)).status,'state_unavailable');assert.equal(writes,0);
 // Simulate two overlapping cron runs: OCI receives the SAME idempotency token.
 mock([failed]);
 const both=await Promise.all([run(e),run(e)]);
