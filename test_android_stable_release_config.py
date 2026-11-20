@@ -114,7 +114,10 @@ class AndroidStableReleaseTests(unittest.TestCase):
         # One more guarded action is the single Samsung search-EditText
         # click fallback after a validated search-input gesture. The strict
         # field identity and one-shot budget are checked below.
-        self.assertEqual(service.count('performAction('), 12)
+        # The extra action is one original 10930-style BACKWARD scroll on
+        # a captured, checksum-valid local Gold list while restoring search.
+        # It is not a new order, click or form-field action.
+        self.assertEqual(service.count('performAction('), 13)
         return_scroll = service.split('private fun returnToSearchWhileImporting(', 1)[1].split(
             'private fun deliverMorningList(', 1)[0]
         for guard in [
@@ -159,6 +162,49 @@ class AndroidStableReleaseTests(unittest.TestCase):
         self.assertIn('LOCAL_RESEARCH_DEGIRO_RETURNED', service)
         self.assertIn('LOCAL_RESEARCH_DEGIRO_NOT_VISIBLE', service)
         self.assertIn('LOCAL_RESEARCH_SEARCH_UNAVAILABLE', service)
+        preflight = service.split('private fun continueLocalGoldResearch(', 1)[1].split(
+            'private fun returnToSearchWhileImporting(', 1)[0]
+        for guard in [
+            'PhoneRemote.sessionId()!=ticket', 'isDeviceLocked',
+            'root?.packageName?.toString()!=ProductScreenEvidence.PACKAGE',
+            'quarantinedGoldReturnScrollTarget(',
+            'descriptions,backwards,local.toSet()',
+            'current?.windowId==root.windowId',
+            'current?.packageName?.toString()==ProductScreenEvidence.PACKAGE',
+            'live[index].refresh()', 'live[index].isVisibleToUser',
+            'ACTION_SCROLL_BACKWARD', 'LOCAL_RESEARCH_HEADER_SCROLL_SENT'
+        ]:
+            self.assertIn(guard, preflight)
+        self.assertEqual(preflight.count('performAction('), 1)
+        local_policy = (ROOT / "android_companion/app/src/main/java/ch/bob/degirocompanion/MorningReadPolicy.kt").read_text()
+        local_scroll = local_policy.split('fun quarantinedGoldReturnScrollTarget(',1)[1].split(
+            '/** Continue only an already captured Top Results list.',1)[0]
+        for guard in [
+            'localCandidates.size !in 1..10', 'SeriesEvidence.validIsin',
+            'genericTurboDirectory(nodes)', 'it.editable || it.containsInput',
+            'productSearchWithoutLauncher(synthetic)', 'captureGoldList(nodes,true)',
+            'visible.kind!=Kind.COLLECT', 'visible.isins.any { it !in localCandidates }',
+            'innermost(nodes,candidates).singleOrNull()'
+        ]: self.assertIn(guard, local_scroll)
+        # PR #1790's old Stop Loss and quantity calculations are back as
+        # PURE OFFLINE simulations, not as a hidden live DEGIRO form adapter.
+        offline = (ROOT / "android_companion/app/src/main/java/ch/bob/degirocompanion/StopLossOfflineSimulation.kt").read_text()
+        policy_only = (ROOT / "android_companion/app/src/main/java/ch/bob/degirocompanion/StopLossPrefillPolicy.kt").read_text()
+        manifest = (ROOT / "android_companion/app/src/main/AndroidManifest.xml").read_text()
+        self.assertIn('internal object StopLossOfflineSimulation',offline)
+        self.assertIn('internal object StopLossPrefillPolicy',policy_only)
+        self.assertNotIn('StopLossPrefillExecutor',service)
+        self.assertNotIn('StopLossPrefillSession',service)
+        self.assertNotIn('StopLossPrefillActivity',manifest)
+        self.assertIn('<activity android:name=".StopLossSimulationActivity" android:exported="false" />',manifest)
+        self.assertIn('<activity android:name=".StopLossMockOrderActivity" android:exported="false" />',manifest)
+        self.assertIn('Stop-Loss & Stückzahl üben · nur Offline-Simulation',
+                      (ROOT / "android_companion/app/src/main/java/ch/bob/degirocompanion/ProductReadActivity.kt").read_text())
+        # Source comments may identify the deliberately excluded executor,
+        # but neither pure class may invoke its real broker action.
+        self.assertNotIn('StopLossPrefillExecutor.execute(',offline)
+        self.assertNotIn('StopLossPrefillExecutor.execute(',policy_only)
+        self.assertNotIn('StopLossPrefillSession',service)
         self.assertIn('MorningReadPolicy.postCaptureGoldSearchFocusIndex(', service)
         # The research-only Gold preview may have one exact unrelated
         # global "Order platzieren" launcher. It may permit only a uniquely

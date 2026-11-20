@@ -1908,15 +1908,55 @@ class ProductReadService : AccessibilityService() {
         }
         val live=mutableListOf<AccessibilityNodeInfo>()
         val descriptions=mutableListOf<MorningReadPolicy.Node>()
+        var returnedTowardSearch=false
         val safe=try {
             navigationTree(root,live,descriptions)
             val decision=MorningReadPolicy.localResearchDecision(
                 descriptions,local.first(),keyboardVisible(),resultOpened=false)
-            decision.kind in setOf(MorningReadPolicy.Kind.SEARCH,
+            val ready=decision.kind in setOf(MorningReadPolicy.Kind.SEARCH,
                 MorningReadPolicy.Kind.FOCUS,MorningReadPolicy.Kind.QUERY) &&
                 !MorningReadPolicy.genericTurboDirectory(descriptions)
+            if(!ready && attempt<3 && !keyboardVisible()) {
+                // Version 10930 already scrolled within an exact ISIN list
+                // toward the Markets search. Reuse that one read-only gesture
+                // for partial local identities, without accepting them as
+                // a confirmed ten-row server import or touching K/V.
+                val backwards=live.indices.filter { i ->
+                    val n=live[i]
+                    n.isVisibleToUser && n.isEnabled && !n.isEditable &&
+                        !n.isPassword &&
+                        n.className?.toString()!="android.widget.HorizontalScrollView" &&
+                        n.actionList.any {
+                            it.id==AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+                        }
+                }.toSet()
+                val index=MorningReadPolicy.quarantinedGoldReturnScrollTarget(
+                    descriptions,backwards,local.toSet())
+                if(index!=null) {
+                    val current=productRoot(false)
+                    val same=current?.windowId==root.windowId &&
+                        current?.packageName?.toString()==ProductScreenEvidence.PACKAGE
+                    current?.recycle()
+                    if(same && PhoneRemote.active() &&
+                        PhoneRemote.sessionId()==ticket &&
+                        live[index].refresh() && live[index].isVisibleToUser) {
+                        returnedTowardSearch=live[index].performAction(
+                            AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)
+                        ProductReadDiagnostics.record(if(returnedTowardSearch)
+                            ProductReadDiagnostics.Outcome.LOCAL_RESEARCH_HEADER_SCROLL_SENT
+                            else ProductReadDiagnostics.Outcome.LOCAL_RESEARCH_HEADER_SCROLL_REJECTED)
+                    }
+                }
+            }
+            ready
         } catch(_:Exception) { false }
           finally { live.forEach { it.recycle() };root.recycle() }
+        if(returnedTowardSearch) {
+            handler.postDelayed({
+                continueLocalGoldResearch(local,ticket,attempt+1,startedAt)
+            },650)
+            return
+        }
         if(safe) {
             if(!PhoneRemote.active() || PhoneRemote.sessionId()!=ticket)return
             ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LOCAL_RESEARCH_SEARCH_READY)

@@ -854,6 +854,63 @@ class MorningReadPolicyTest {
     }
 
 
+    @Test fun quarantinedNineOfTenCanOnlyScrollBackwardTowardLegacyGoldSearch() {
+        val local=setOf("DE000FB0CVV9","DE000SQ02JQ6","DE000FG8NHQ3",
+            "DE000FG0SGZ2","DE000FD0S0G4","DE000FE2JJ20","DE000FG77MY4",
+            "DE000FG8K0P8","DE000PJ8APE4")
+        assertEquals(9,local.size)
+        assertTrue(local.all(SeriesEvidence::validIsin))
+        val title="SG Gold Turbo BEST Open-End Put BAR 4089.34 BP 4089.34 Bv 10 | DE000FB0CVV9"
+        val view=listOf(
+            MorningReadPolicy.Node("Hebelprodukte",selected=true),
+            MorningReadPolicy.Node("",row=title),
+            MorningReadPolicy.Node(title,parent=1))
+        assertEquals(1,MorningReadPolicy.quarantinedGoldReturnScrollTarget(
+            view,setOf(1),local))
+        // The real 10/10 broker list verifier remains unchanged.
+        assertNull(MorningReadPolicy.listReturnScrollTarget(view,setOf(1),local))
+        assertNull(MorningReadPolicy.quarantinedGoldReturnScrollTarget(
+            view,setOf(0),local))
+        assertNull(MorningReadPolicy.quarantinedGoldReturnScrollTarget(
+            view,setOf(1),local-"DE000FB0CVV9"))
+        assertNull(MorningReadPolicy.quarantinedGoldReturnScrollTarget(
+            view+MorningReadPolicy.Node("Gold",editable=true,hint="Suche"),
+            setOf(1),local))
+        for(bad in listOf(
+            MorningReadPolicy.Node("Order bestätigen"),
+            MorningReadPolicy.Node("Orderart"),
+            MorningReadPolicy.Node("Limitpreis"),
+            MorningReadPolicy.Node("Stückzahl"),
+            MorningReadPolicy.Node("",password=true),
+            MorningReadPolicy.Node("",sensitive=true),
+            MorningReadPolicy.Node("Betrag",editable=true))) {
+            assertNull(MorningReadPolicy.quarantinedGoldReturnScrollTarget(
+                view+bad,setOf(1),local))
+        }
+    }
+
+    @Test fun quarantinedGoldReturnScrollOnlyIgnoresOneIndependentOrderLauncher() {
+        val title="SG Gold Turbo BEST Open-End Put BAR 4089.34 BP 4089.34 Bv 10 | DE000FB0CVV9"
+        val local=setOf("DE000FB0CVV9","DE000SQ02JQ6")
+        val base=listOf(
+            MorningReadPolicy.Node("Hebelprodukte",selected=true),
+            MorningReadPolicy.Node("",row=title),
+            MorningReadPolicy.Node(title,parent=1))
+        val launcher=MorningReadPolicy.Node("Order platzieren",clickable=true,
+            row="Order platzieren")
+        assertEquals(1,MorningReadPolicy.quarantinedGoldReturnScrollTarget(
+            base+launcher,setOf(1),local))
+        val unsafe=listOf(
+            base+launcher+launcher,
+            base+launcher.copy(text="Order bestätigen"),
+            base+launcher.copy(row="Order platzieren\\nKauf"),
+            base+launcher.copy(clickable=false),
+            base+launcher.copy(parent=1))
+        for(v in unsafe)
+            assertNull(MorningReadPolicy.quarantinedGoldReturnScrollTarget(
+                v,setOf(1),local))
+    }
+
     private fun screenshotGoldTopResults():List<MorningReadPolicy.Node> {
         val title="SG Gold Turbo Unlimited Mini Call BAR 2166 BP 2135.51 Bv 10 | DE000SQ02JQ6"
         return listOf(
