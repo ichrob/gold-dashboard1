@@ -43,6 +43,10 @@ python3 ops/oracle_a1_retry/cloudshell_preflight.py '<bestehende-Zürich-Stack-O
 
 Es führt ausschließlich `oci ... get/list` aus und meldet kategorisierte Instanz-/Terraform-State- und Jobstatus ohne Rohlogs, private Schlüssel oder vollständige OCIDs.
 
+**Ausgabepräzisierung nach dem Samsung-Test vom 20.11.2026, 16:26 CH:** Der Test meldete `COMPUTE_INSTANCE=UNAVAILABLE`, `TERRAFORM_STATE_INSTANCE=ABSENT` und `PLAN_CONFIGURATION=PUBLIC_IP_NOT_PROHIBITED`. Deshalb darf der Abgleich nicht `COMPUTE_TF_DISAGREEMENT=false` ausgeben, solange eine Seite nicht lesbar ist. Die neue Diagnose verwendet dann `UNKNOWN` und gibt nur eine sichere Ursache unter `COMPUTE_LOOKUP_ERROR` aus (z. B. `NOT_AUTHORIZED_OR_NOT_FOUND`, `CLI_ARGUMENT_ERROR` oder `OTHER_CLI_ERROR`). Rohfehler und Zugangsdaten bleiben lokal. Sie druckt außerdem `STATE_SUBNET_PROHIBITS_PUBLIC_IP` und `PLAN_VNIC_ASSIGN_PUBLIC_IP` nur als `TRUE`/`FALSE`/`NULL`/`MISSING_IN_PLAN`/`UNKNOWN_IN_TERRAFORM_PLAN` bzw. `UNAVAILABLE` aus. Dies erklärt den Widerspruch, ohne einen fehlenden öffentlichen IP-Schutz durch Annahmen zu ersetzen.
+
+Die archivierte, aus Oracle heruntergeladene `main.tf` setzt `assign_public_ip=false`, und der Subnetz-State enthält `prohibit_public_ip_on_vnic=true`. Ein **alter Plan** oder ein nicht aufgelöstes Planfeld kann trotzdem beim Plan-Validator scheitern. Die Meldung `PUBLIC_IP_NOT_PROHIBITED` bedeutet nur, dass der gespeicherte **Plan** den strikten Nachweis nicht erbringt, nicht dass nachweislich eine öffentliche IP zugeteilt wurde. Ein Plan wird nicht automatisch erneuert und es wird nichts ausgerollt.
+
 Die historischen, widersprüchlichen Shell-Meldungen `Bob-Instanz vorhanden` und später `ABSENT` ersetzen keine aktuelle direkte Instanzabfrage. Das Programm autorisiert keinen Apply. Die drei Schutzschalter bleiben aus, bis Oracle-Konto, Always-Free-Plan, tatsächlicher Compute-Bestand und API-Rechte ausdrücklich geprüft wurden.
 
 ## Tests, Beobachtung, Not-Aus
