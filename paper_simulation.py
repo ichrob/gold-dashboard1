@@ -1462,13 +1462,13 @@ def quote_cache(products, active, now, preferred=()):
         else:
             observations[isin] = refreshed
         if recovery:
-            observations[isin]['sourceRecovery']=recovery
-            if any(event['state'] in ('failed','waiting') for event in recovery):
-                observations[isin]['eligible']=False
+            # Optional source failures remain visible in diagnostics, but do
+            # not demote verified issuer quotes in either paper or push data.
+            # They also never turn an incomplete primary quote into a valid one.
+            if isinstance(observations.get(isin), dict):
+                observations[isin]['sourceRecovery']=copy.deepcopy(recovery)
             if isin in observed:
-                observed[isin]['sourceRecovery'] = copy.deepcopy(recovery)
-                if any(event['state'] in ('failed','waiting') for event in recovery):
-                    observed[isin]['eligible'] = False
+                observed[isin]['sourceRecovery']=copy.deepcopy(recovery)
     with _guard:
         _observed_snapshot = observed
     return observations
