@@ -985,7 +985,11 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
                 c=new_case(market,choice,quotes.get(choice['isin']),now,cash=budget,cost_model=cost_model,bundle=bundle,
                     max_holding_minutes=int((profile_policy or {}).get('max_holding_minutes',240)))
                 c['entryChecklist']=entry_checklist
-                c['selectionEvidence']=__import__('paper_evidence_chain').capture_selection(selection, choice, now)
+                # Capture the exact bounded PAPER candidate pool that was
+                # checked at this entry, not only the public display Top 3.
+                # A verified fourth-ranked entry must remain auditable later.
+                c['selectionEvidence']=__import__('paper_evidence_chain').capture_selection(
+                    {'choices': candidates}, choice, now)
                 if c.get('koGuardRequired'):
                     _,c['koWatch']=paper_ko_guard.entry_reason(choice,quotes.get(choice['isin']),market,now)
                     c['koWatchStatus']='confirmed'
