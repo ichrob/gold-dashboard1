@@ -81,6 +81,29 @@ class OneTapCompleteFlowTest(unittest.TestCase):
         self.assertIn("onConfirmed?.invoke(plan,batch)", delivery)
         self.assertIn("MorningReadRun.beginDiscovered(this,plan.map { it.isin },batch,", service)
 
+    def test_provisional_gold_search_rebuild_is_passive_and_bounded(self):
+        service = source("ProductReadService.kt")
+        policy = source("MorningReadPolicy.kt")
+        # The owner-started first local ISIN handoff gets a five-second
+        # passive grace ONLY if no search input and one isolated launcher remain.
+        self.assertIn("localResearchHandoffAt=SystemClock.elapsedRealtime()", service)
+        self.assertIn("localResearchHandoffTicket=ticket", service)
+        self.assertIn("localResearchHandoffTicket==PhoneRemote.sessionId()", service)
+        self.assertIn("MorningReadRun.researchOnlyActive()", service)
+        self.assertIn("MorningReadRun.index==0", service)
+        self.assertIn("elapsed in 0L until 5000L", service)
+        self.assertIn("MorningReadPolicy.passiveGoldSearchRebuild(descriptions)", service)
+        self.assertIn('lastNavigationIssue="LOCAL_RESEARCH_PASSIVE_SEARCH_REBUILD"', service)
+        self.assertIn("queueRead(500)", service)
+        wait = service.split("val elapsed=SystemClock.elapsedRealtime()-localResearchHandoffAt",1)[1].split(
+            'if(!gold && action.code=="PROTECTED_ORDER_CONFIRM")',1)[0]
+        # This branch is NO ACTION; only the existing read poll is rescheduled.
+        self.assertNotIn("performAction(", wait)
+        self.assertNotIn("tapRecognizedSearch(", wait)
+        self.assertNotIn("performGlobalAction(", wait)
+        self.assertIn('protection(nodes)!="PROTECTED_ORDER_CONFIRM"', policy)
+        self.assertIn("nodes.any { it.editable || it.containsInput || it.password || it.sensitive }", policy)
+
     def test_rejected_list_shows_redacted_row_count_but_never_confirms(self):
         delivery = source("MorningListDelivery.kt")
         self.assertIn("internal fun rejectedListHint(", delivery)
