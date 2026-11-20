@@ -38,12 +38,14 @@ class ProductReadService : AccessibilityService() {
     private var localResearchWaitTicket = ""
     private var localResearchOwnerLoginWaiting = false
     private var localResearchLoginTicket = ""
+    private var localResearchGoldRebuilding = false
     private var localResearchScreenLease: PowerManager.WakeLock? = null
     private fun clearLocalResearchWait() {
         localResearchAwaitingDegiro = false
         localResearchWaitTicket = ""
         localResearchOwnerLoginWaiting = false
         localResearchLoginTicket = ""
+        localResearchGoldRebuilding = false
         localResearchScreenLease?.let { if(it.isHeld) it.release() }
         localResearchScreenLease = null
     }
@@ -1979,12 +1981,15 @@ class ProductReadService : AccessibilityService() {
         val descriptions=mutableListOf<MorningReadPolicy.Node>()
         var returnedTowardSearch=false
         var ownerLoginVisible=false
+        var goldSearchRebuilding=false
         val safe=try {
             navigationTree(root,live,descriptions)
             ownerLoginVisible=LocalResearchOwnerLoginPolicy.visible(descriptions)
             if(ownerLoginVisible) false else {
             val decision=MorningReadPolicy.localResearchDecision(
                 descriptions,local.first(),keyboardVisible(),resultOpened=false)
+            goldSearchRebuilding=decision.kind==MorningReadPolicy.Kind.WAIT &&
+                decision.code=="GOLD_SEARCH_REBUILDING"
             val ready=decision.kind in setOf(MorningReadPolicy.Kind.SEARCH,
                 MorningReadPolicy.Kind.FOCUS,MorningReadPolicy.Kind.QUERY) &&
                 !MorningReadPolicy.genericTurboDirectory(descriptions)
@@ -2061,6 +2066,36 @@ class ProductReadService : AccessibilityService() {
             handler.postDelayed({
                 continueLocalGoldResearch(local,ticket,attempt+1,startedAt)
             },650)
+            return
+        }
+        if(goldSearchRebuilding) {
+            // A virtualized Gold search with an isolated, global
+            // "Order platzieren" launcher is not an order confirmation.
+            // The EditText has not yet been independently proven, so do
+            // nothing to DEGIRO while Android rebuilds it. In particular,
+            // NEVER consume eight rapid search retries or type an ISIN here.
+            val elapsed=SystemClock.elapsedRealtime()-startedAt
+            if(LocalResearchForegroundPolicy.mayWait(elapsed,
+                    PhoneRemote.active() && PhoneRemote.sessionId()==ticket,
+                    power.isInteractive && !keyguard.isKeyguardLocked &&
+                        !keyguard.isDeviceLocked,brokerVisible=false)) {
+                keepLocalResearchScreen(ticket)
+                if(!localResearchGoldRebuilding) {
+                    localResearchGoldRebuilding=true
+                    ProductReadDiagnostics.record(
+                        ProductReadDiagnostics.Outcome.LOCAL_RESEARCH_GOLD_SEARCH_REBUILDING)
+                    PhoneDiagnostics.queue(this)
+                }
+                handler.postDelayed({
+                    continueLocalGoldResearch(local,ticket,attempt,startedAt)
+                },LocalResearchForegroundPolicy.POLL_MS)
+            } else {
+                clearLocalResearchWait()
+                ProductReadDiagnostics.record(
+                    ProductReadDiagnostics.Outcome.LOCAL_RESEARCH_GOLD_SEARCH_WAIT_EXPIRED)
+                PhoneDiagnostics.queue(this)
+                PhoneRemote.stop(this,"LOCAL_RESEARCH_GOLD_SEARCH_WAIT_EXPIRED")
+            }
             return
         }
         if(safe) {
