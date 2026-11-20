@@ -81,10 +81,11 @@ async function run(env){
   const last=applies[0];
   if(!last)return {status:'no_previous_apply'};
   if(state(last)!=='FAILED')return {status:'non_failed_last_apply'};
-  const createdAt=Date.parse(last.timeCreated||'');
-  const age=Date.now()-createdAt;
-  // Missing/invalid/future timestamps must never authorize a new Apply.
-  if(!Number.isFinite(createdAt)||createdAt<=0||!Number.isFinite(age)||age<25*60*1000)return {status:'cooldown'};
+  // The cooldown begins when Oracle marked the FAILED job finished, not when it started.
+  const finishedAt=Date.parse(last.timeFinished||'');
+  const age=Date.now()-finishedAt;
+  // Missing/invalid/future finish timestamps must never authorize a new Apply.
+  if(!Number.isFinite(finishedAt)||finishedAt<=0||!Number.isFinite(age)||age<25*60*1000)return {status:'cooldown'};
   if(!isOcid(last.id,'ormjob'))return {status:'invalid_last_job'};
   const log=await request(env,'GET','/20180917/jobs/'+encodeURIComponent(last.id)+'/logs/content');
   if(!log.ok||typeof log.data!=='string')return {status:'logs_unavailable',http:log.status};
