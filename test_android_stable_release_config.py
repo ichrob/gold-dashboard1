@@ -111,7 +111,10 @@ class AndroidStableReleaseTests(unittest.TestCase):
         # The extra action only scrolls the verified ten-row DEGIRO result list
         # back to its search header while private OCR is pending. Count changes
         # must be accompanied by explicit source/safety-contract verification.
-        self.assertEqual(service.count('performAction('), 11)
+        # One more guarded action is the single Samsung search-EditText
+        # click fallback after a validated search-input gesture. The strict
+        # field identity and one-shot budget are checked below.
+        self.assertEqual(service.count('performAction('), 12)
         return_scroll = service.split('private fun returnToSearchWhileImporting(', 1)[1].split(
             'private fun deliverMorningList(', 1)[0]
         for guard in [
