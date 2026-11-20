@@ -617,6 +617,8 @@ def new_studies_brief(paper, now_ms=None):
            if isinstance(paper.get('shortRegimeStudy'),dict) else {}),
         **({'koDistance':ko_distance_brief(paper['koDistanceStudy'])}
            if isinstance(paper.get('koDistanceStudy'),dict) else {}),
+        **({'koLeverage':ko_leverage_brief(paper['koLeverageStudy'])}
+           if isinstance(paper.get('koLeverageStudy'),dict) else {}),
         **({'entryOpportunities':entry_opportunity_brief(paper['entryOpportunityStudy'])}
            if isinstance(paper.get('entryOpportunityStudy'),dict) else {}),
         'strategyWinnerConfirmed':False,
@@ -642,6 +644,27 @@ def entry_opportunity_brief(control):
             for key in ARMS if isinstance(decisions.get(key),dict)}
     result.update(strategyWinnerConfirmed=False,productReturnVerified=False,realOrders=False,liveRulesChanged=False)
     return result
+
+
+def ko_leverage_brief(control):
+    """Sanitized bounded paper-only leverage comparison; never leak ISINs."""
+    if not isinstance(control,dict):
+        return dict(status='unavailable',realOrders=False)
+    allowed={'balanced','high-safe'}
+    bands={'buffered-1p5-to-3','medium-3-to-6','wide-6-plus'}
+    summary=fields(control,('version','status','checkedAt','policyCount','armCount',
+                            'highestModeledLeverage','maxWorstCaseKoStakePct',
+                            'stopBudgetPct','maximumHoldingMinutes','opportunities'))
+    rows=control.get('studies')
+    summary['studies']=[fields(row,('policy','koTier','started','closed','open',
+        'activeLeverage','trailingStopUpdates','unknownIssuerExitBids',
+        'unresolvedKO','lastBlock','initialEur','modelCashEur',
+        'modelEquityEur','modelRealizedEur','wins','losses','drawdownPct'))
+        for row in rows[:6] if isinstance(row,dict)
+            and row.get('policy') in allowed and row.get('koTier') in bands] if isinstance(rows,list) else []
+    summary.update(readOnly=True,realOrders=False,productReturnVerified=False,
+        strategyWinnerConfirmed=False,liveRulesChanged=False)
+    return summary
 
 
 def ko_distance_brief(control):
@@ -1526,6 +1549,14 @@ def simulation_status(conn, evaluator, paper_health, portfolios):
     except Exception:
         result['koDistanceStudy'] = {'status':'unavailable','realOrders':False,
                                       'reason':'ko-distance-report-unavailable'}
+    try:
+        with conn.transaction():
+            conn.execute("SET LOCAL statement_timeout='500ms'")
+            result['koLeverageStudy'] = __import__('gold_intraday_ko_leverage').report(conn)
+            conn.execute("SET LOCAL statement_timeout='3s'")
+    except Exception:
+        result['koLeverageStudy'] = {'status':'unavailable','realOrders':False,
+                                     'reason':'ko-leverage-report-unavailable'}
     result['shadowStudies']['entryExitComparison'] = comparison
     try:
         with conn.transaction():
