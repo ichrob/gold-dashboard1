@@ -199,3 +199,39 @@ unterschieden werden können.
 Der Rückwechsel ist ein begründeter Reparaturversuch, nicht der Nachweis,
 dass SG die korrekten Produktdaten liefert. Der bestehende direkte
 SG-Emittentenimport bleibt für Bob primär.
+
+## 20.11.2026: SG-Browserless ausgesetzt, SG-Direktquelle bevorzugt
+
+Der Nutzer hat mehrere öffentliche SG-Browserless-Abrufe für dieselbe ISIN
+DE000FB0A490 mit identity-not-proven beziehungsweise provider-unavailable
+dokumentiert. Der jüngste Browserless-Report (15:44 CH) zeigt SFO / browser,
+langes Markdown, aber weder vollständige ISIN noch WKN, Produktmerkmale oder
+die ISIN in RawText bzw. RawHTML. Ursache der falschen/irrelevanten
+Browserless-Seite ist ohne die ursprüngliche Rohseite nicht bestimmbar.
+
+Dagegen bestätigt Bobs aktueller interner read-only-Produktstatus für
+DE000FB0A490 (20.11., 15:45 CH) analysis-evidence-complete,
+missing=[], Quelle "SG · datierter Chartkurs", Originalkurszeit
+20.11. 15:45 CH. Die Direktquelle ist bereits für den gewünschten
+Produktanalyse-Zweck verfügbar; sie ist ausdrücklich keine
+DEGIRO-Handels- oder Kaufberechtigung.
+
+Verbindliche Kosten-/Zuverlässigkeitsentscheidung:
+- SG_BROWSERLESS_SUSPENDED=True als serverseitige Sperre (nach
+  erfolgreichem Readiness-Check, vor Tokenverwendung und Quota-Reservierung).
+  SG-Aufruf liefert direct-sg-preferred, researchOnly=true,
+  eligible=false, tradeApproved=false, fields={} und providerCallStarted=false.
+- SG bleibt als deaktivierte Auswahl im UI sichtbar und verweist auf Bobs
+  Produkte-Ansicht und den vorhandenen direkten SG-Datenimport.
+- BNP und comdirect bleiben nur als explizite, kostenbegrenzte,
+  öffentliche Browserless-Recherche testbar; keinerlei automatische Abrufe.
+- Eine Freigabe für SG-Browserless setzt eine separate technische
+  Untersuchung mit verifiziertem echten SG-Produktnachweis und ein
+  kontrolliertes neues Review voraus. Kein stilles Umgehen der Sperre durch
+  Serverneustart oder wiederholten Klick.
+- Unverändert: keine DEGIRO-PIN/Kontoautomatisierung, keine Echtgeldorders,
+  keine automatische Übernahme in Quotes, Rankings oder Simulationen.
+
+Bei vollständiger Produktanalyse gibt es aktuell keinen sachlichen Anlass,
+weitere Browserless-Free-Einheiten an denselben fehlschlagenden SG-Abruf
+zu verlieren.
