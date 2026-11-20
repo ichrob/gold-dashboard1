@@ -573,6 +573,12 @@ internal object MorningReadPolicy {
                               keyboardReady: Boolean = true,
                               resultOpened: Boolean = true): Action {
         val ordinary=detailDecision(nodes,target,false,keyboardReady,resultOpened)
+        if(ordinary.kind in setOf(Kind.BACK,Kind.WAIT,Kind.BLOCK)) {
+            // When WebView has scrolled away the EditText entirely, reuse
+            // the old read-only exact Markets search launcher from the
+            // independently validated Gold list. Never target a card or K/V.
+            importedListSearch(nodes)?.let { return it }
+        }
         if(ordinary.kind != Kind.BLOCK && ordinary.kind != Kind.WAIT)return ordinary
         // Samsung virtualizes product rows after the existing reader
         // scrolls BACK to the Gold search header. Requiring COLLECT here
