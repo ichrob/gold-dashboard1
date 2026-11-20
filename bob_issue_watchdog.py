@@ -54,12 +54,14 @@ CODES = {
 PRODUCT_AUDIT_UNKNOWN = "_private-product-audit-unavailable"
 PRODUCT_CODES = frozenset(code for code in CODES if code.startswith("product-"))
 STUDY_CODES = frozenset(code for code in CODES if code.startswith("study-"))
+# Cloudflare is NOT a GitHub workflow event. These faults need separate
+# Cloudflare-side recovery evidence before any closure.
+CLOUDFLARE_CODES = frozenset(code for code in CODES if code.startswith("cloudflare-"))
 # These are verified by independent GitHub Actions evidence, not by a missing
 # /health code. Only separately evidenced GitHub recovery may close them.
 EXTERNAL_CODES = frozenset((
     "ci-main-failed", "smoke-main-failed",
     "collection-main-failed", "watchdog-main-failed",
-    "cloudflare-worker-error", "cloudflare-observability-coverage",
 ))
 STUDY_SCOPE = "bob-original-study-watchdog-v1"
 PRODUCT_CONFIRMATION_SECONDS = 120
@@ -355,7 +357,7 @@ def sync_issue(codes, *, token, repo, at=None, requester=github_request,
     # Data-dependent research findings need prospective ORIGINAL evidence
     # before closure. An empty/stale/missing health projection cannot close them.
     product_titles = {issue_title(code) for code in
-                      PRODUCT_CODES | STUDY_CODES | EXTERNAL_CODES
+                      PRODUCT_CODES | STUDY_CODES | EXTERNAL_CODES | CLOUDFLARE_CODES
                       | {"trade-setup-stalled", "screenshot-import-failed"}}
     actions = []
 
