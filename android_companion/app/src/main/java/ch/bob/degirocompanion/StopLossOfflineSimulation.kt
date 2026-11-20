@@ -84,7 +84,7 @@ internal object StopLossOfflineSimulation {
                 StopLossPrefillPolicy.Kind.BLOCK -> {
                     trace.add("Sicherheitssperre in $stage: "+decision.code)
                     val expected=expectedBlock(scenario)
-                    intendedBlock=expected?.stage==stage &&
+                    intendedBlock=expected != null && expected.stage==stage &&
                         expected.code==decision.code &&
                         stopInput.isEmpty() && quantityInput.isEmpty()
                     return Report(intendedBlock,
