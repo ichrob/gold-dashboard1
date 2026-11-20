@@ -57,6 +57,49 @@ internal object MorningListEndPolicy {
         "(?iu)order platzieren|order bestätigen|place order|confirm order|" +
             "orderart|ordertyp|limitpreis|stückzahl|anzahl kaufen|passwort|password|login|anmelden"
     )
+    /** The global Markets Order launcher is sometimes still exposed beside
+     * the read-only Gold footer. Ignore it only for deciding whether to
+     * capture one additional CROPPED picture; NEVER return a click target.
+     * A true order form, nested launcher or second marker remains rejected. */
+    private fun safeFooterProtection(nodes: List<MorningReadPolicy.Node>): Boolean {
+        val marked=nodes.indices.filter { i ->
+            val n=nodes[i]
+            listOf(n.text,n.description,n.hint,n.row)
+                .any(footerProtection::containsMatchIn)
+        }
+        if(marked.isEmpty()) return true
+        val index=marked.singleOrNull() ?: return false
+        val n=nodes[index]
+        if(!n.enabled || !(n.clickable || n.clickAction) || n.editable ||
+            n.containsInput || n.password || n.sensitive) return false
+        val exact=Regex("(?iu)^(order platzieren|place order)$")
+        val labels=listOf(n.text,n.description,n.hint,n.row)
+            .filter(String::isNotBlank)
+        if(labels.isEmpty() || labels.any { !exact.matches(it.trim()) }) return false
+        // Never ignore an order control embedded in a product card or
+        // an aggregate wrapper with hidden children.
+        fun below(child:Int,parent:Int):Boolean {
+            var at=nodes[child].parent
+            var steps=0
+            while(at in nodes.indices && steps++<nodes.size) {
+                if(at==parent) return true
+                at=nodes[at].parent
+            }
+            return false
+        }
+        if(nodes.indices.any { it!=index && below(it,index) }) return false
+        val ids=Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b")
+        var at=n.parent
+        var steps=0
+        while(at in nodes.indices && steps++<nodes.size) {
+            val parent=nodes[at]
+            if(ids.containsMatchIn(parent.text.uppercase()) ||
+                ids.containsMatchIn(parent.row.uppercase())) return false
+            at=parent.parent
+        }
+        return true
+    }
+
     fun needsFooterRecapture(nodes: List<MorningReadPolicy.Node>,
                              capturedImages: Int, seen: Set<String>,
                              current: List<String>, action: MorningReadPolicy.Action): Boolean =
@@ -71,8 +114,7 @@ internal object MorningListEndPolicy {
         action.kind == MorningReadPolicy.Kind.COLLECT && action.isins == current &&
         hasVerifiedFooter(nodes) &&
         !nodes.any { it.password || it.sensitive || it.editable } &&
-        nodes.none { n -> listOf(n.text,n.description,n.hint,n.row)
-            .any(footerProtection::containsMatchIn) }
+        safeFooterProtection(nodes)
 
     fun maySubmitAtCaptureLimit(capturedImages: Int, seen: Set<String>): Boolean =
         capturedImages == 4 && seen.size in 5..9 && seen.all(SeriesEvidence::validIsin)
