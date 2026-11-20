@@ -563,6 +563,117 @@ internal object MorningReadPolicy {
         // A WebView can retain focus after hiding the keyboard. Open it before editing.
         return if(action.kind==Kind.QUERY && !keyboardReady) action.copy(kind=Kind.FOCUS) else action
     }
+    /** A Samsung Gold results preview can keep a separate global
+     * "Order platzieren" launcher even after the WebView has temporarily
+     * hidden its search EditText. This recovers ONLY the uniquely identified
+     * read-only search launcher (or waits for a rebuilt field). No synthetic
+     * input is ever returned as a click target, and no order/form node is
+     * accepted. Genuine confirm, quantity, price, PIN and ambiguous views
+     * still return the original PROTECTED_ORDER_CONFIRM block.
+     */
+    private fun isolatedGoldSearchAfterLauncher(nodes:List<Node>):Action? {
+        if(nodes.isEmpty() || nodes.size>500 ||
+            protection(nodes)!="PROTECTED_ORDER_CONFIRM" ||
+            nodes.any { it.editable || it.containsInput || it.sensitive || it.password } ||
+            genericTurboDirectory(nodes)) return null
+        fun exact(value:String,label:String)=normalized(value).equals(label,true)
+        if(nodes.count { exact(it.text,"Hebelprodukte") }!=1 ||
+            nodes.count { exact(it.text,"Top Ergebnisse") }!=1 ||
+            nodes.none { exact(it.text,"Märkte") }) return null
+        val product=nodes.any { n ->
+            !n.editable && !n.containsInput &&
+            Regex("(?iu)\\b(gold|xau)\\b").containsMatchIn(n.row) &&
+            (Regex("(?iu)\\b(turbo|knock[ -]?out|mini[ -]?(future|long|short))\\b")
+                .containsMatchIn(n.row) || unlimitedGoldRow(n.row)) &&
+            ids.findAll(n.row.uppercase()).any { SeriesEvidence.validIsin(it.value) }
+        }
+        if(!product) return null
+        // The verified ONE isolated leaf launcher is ignored only for
+        // classification. This fake EditText is never used as an action
+        // index or user input; the returned index must exist in the REAL UI.
+        val check=nodes+Node("Gold",id="bob:search_input",editable=true)
+        val clean=productSearchWithoutLauncher(check) ?: return null
+        if(protection(clean)!=null) return null
+        val markers=nodes.indices.filter { i ->
+            listOf(nodes[i].text,nodes[i].description,nodes[i].hint)
+                .any(orderMarkers.first().second::containsMatchIn)
+        }
+        val launcher=markers.singleOrNull() ?: return null
+        val button=nodes[launcher]
+        val exactLauncher=Regex("(?iu)^order platzieren$")
+        if(!canClick(button) || button.containsInput || button.editable ||
+            listOf(button.text,button.description,button.hint)
+                .filter(String::isNotBlank).any {
+                    !exactLauncher.matches(normalized(it))
+                } ||
+            button.row.lines().filter(String::isNotBlank).any {
+                !exactLauncher.matches(normalized(it))
+            }) return null
+        fun descendant(child:Int,ancestor:Int):Boolean {
+            var p=nodes[child].parent; var steps=0
+            while(p in nodes.indices && steps++<nodes.size) {
+                if(p==ancestor)return true
+                p=nodes[p].parent
+            }
+            return false
+        }
+        if(nodes.indices.any { i -> i!=launcher && descendant(i,launcher) })
+            return null
+        // A launcher embedded in a product card is NOT the global Markets
+        // launcher, even if its leaf label is exactly "Order platzieren".
+        var ancestor=button.parent;var hops=0
+        while(ancestor in nodes.indices && hops++<nodes.size) {
+            val text=nodes[ancestor].text
+            if(ids.containsMatchIn(text.uppercase()) ||
+                (Regex("(?iu)\\b(gold|xau)\\b").containsMatchIn(text) &&
+                 Regex("(?iu)\\b(turbo|knock[ -]?out)\\b").containsMatchIn(text)))
+                return null
+            ancestor=nodes[ancestor].parent
+        }
+        fun nestedInProduct(index:Int):Boolean {
+            var p=nodes[index].parent;var steps=0
+            while(p in nodes.indices && steps++<nodes.size) {
+                val title=nodes[p].text
+                if(ids.containsMatchIn(title.uppercase()) ||
+                    (Regex("(?iu)\\b(gold|xau)\\b").containsMatchIn(title) &&
+                     Regex("(?iu)\\b(turbo|knock[ -]?out)\\b").containsMatchIn(title)))
+                    return true
+                p=nodes[p].parent
+            }
+            return false
+        }
+        // If the search bar is temporarily virtualized, open only an
+        // individually labelled, uniquely clickable search control.
+        // Do not choose an account icon, result row or K/V control.
+        val searchButtons=innermost(nodes,nodes.indices.filter { i ->
+            val n=nodes[i]
+            i!=launcher && !descendant(i,launcher) && !descendant(launcher,i) &&
+                !nestedInProduct(i) && canClick(n) && !n.editable && !n.containsInput &&
+                !n.sensitive && !n.password &&
+                listOf(n.text,n.description,n.hint,n.row)
+                    .filter(String::isNotBlank).let { labels ->
+                        labels.isNotEmpty() && labels.all { label ->
+                            searchLabel(label) &&
+                                normalized(label).lowercase() in setOf(
+                                    "suche","suchen","search",
+                                    "mit namen, isin oder symbol suchen")
+                        }
+                    }
+        })
+        // A search-labelled widget whose aggregate row also contains K/V
+        // or another action is NOT a harmless absent search control. Block,
+        // rather than entering the passive wait path and hiding ambiguity.
+        if(searchButtons.isEmpty() && nodes.indices.any { i ->
+                val n=nodes[i]
+                i!=launcher && canClick(n) &&
+                    (search(n) || rowSearch(n))
+            }) return null
+        return if(searchButtons.size==1) Action(Kind.SEARCH,
+                searchButtons.single(),code="GOLD_GLOBAL_LAUNCHER_SEARCH")
+            else if(searchButtons.isEmpty()) Action(Kind.WAIT,code="GOLD_SEARCH_REBUILDING")
+            else null
+    }
+
     /** The independently verified read-only Gold preview can retain the
      * standalone global "Order platzieren" launcher. For locally quarantined
      * research, permit ONLY focus/text replacement in the one genuine Gold
@@ -573,6 +684,18 @@ internal object MorningReadPolicy {
                               keyboardReady: Boolean = true,
                               resultOpened: Boolean = true): Action {
         val ordinary=detailDecision(nodes,target,false,keyboardReady,resultOpened)
+        if(ordinary.kind==Kind.BLOCK && ordinary.code=="PROTECTED_ORDER_CONFIRM") {
+            // Only an original, owner-started quarantined Gold research run
+            // can use this narrow extra classification. Genuine order views
+            // stay BLOCK: the actual search must be separately labelled.
+            isolatedGoldSearchAfterLauncher(nodes)?.let { return it }
+            // CRITICAL: do not fall through to importedListSearch(), which
+            // may create a synthetic Gold input for SCROLL classification.
+            // That older helper must never downgrade a protected form or
+            // an embedded product-card order launcher to a search click.
+            return ordinary
+        }
+        if(ordinary.kind==Kind.BLOCK && protection(nodes)!=null) return ordinary
         if(ordinary.kind in setOf(Kind.BACK,Kind.WAIT,Kind.BLOCK)) {
             // After the Gold list scroll, a live WebView can expose the
             // original Gold input before the category/row nodes settle.

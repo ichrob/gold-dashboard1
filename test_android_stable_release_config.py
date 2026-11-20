@@ -160,6 +160,33 @@ class AndroidStableReleaseTests(unittest.TestCase):
         self.assertIn('LOCAL_RESEARCH_DEGIRO_NOT_VISIBLE', service)
         self.assertIn('LOCAL_RESEARCH_SEARCH_UNAVAILABLE', service)
         self.assertIn('MorningReadPolicy.postCaptureGoldSearchFocusIndex(', service)
+        # The research-only Gold preview may have one exact unrelated
+        # global "Order platzieren" launcher. It may permit only a uniquely
+        # identified search icon (or a read-only wait), never order actions.
+        policy = (ROOT / "android_companion/app/src/main/java/ch/bob/degirocompanion/MorningReadPolicy.kt").read_text()
+        recovery = policy.split('private fun isolatedGoldSearchAfterLauncher(', 1)[1].split(
+            '/** The independently verified read-only Gold preview', 1)[0]
+        for guard in [
+            'protection(nodes)!="PROTECTED_ORDER_CONFIRM"',
+            'genericTurboDirectory(nodes)',
+            'nodes.count { exact(it.text,"Hebelprodukte") }!=1',
+            'nodes.count { exact(it.text,"Top Ergebnisse") }!=1',
+            'productSearchWithoutLauncher(check)',
+            'if(protection(clean)!=null) return null',
+            'descendant(i,launcher)', 'canClick(n)',
+            'Action(Kind.SEARCH,',
+            'code="GOLD_GLOBAL_LAUNCHER_SEARCH"',
+            'Action(Kind.WAIT,code="GOLD_SEARCH_REBUILDING")'
+        ]:
+            self.assertIn(guard, recovery)
+        self.assertIn('isolatedGoldSearchAfterLauncher(nodes)?.let { return it }', policy)
+        # This exceptional search must use the existing overlay-verified
+        # bounded gesture, NEVER the ordinary direct ACTION_CLICK path.
+        self.assertIn('action.code=="GOLD_GLOBAL_LAUNCHER_SEARCH"', service)
+        self.assertIn('MorningReadRun.researchOnlyActive()) {', service)
+        self.assertIn('val tapped=tapRecognizedSearch(root.windowId)', service)
+        self.assertIn('LOCAL_RESEARCH_GLOBAL_SEARCH_TAP_REJECTED', service)
+        self.assertIn('!nestedInProduct(i)', recovery)
 
 
         seek=service.split('A fresh run can begin on yesterday',1)[1].split('val proposed=',1)[0]
