@@ -1962,7 +1962,12 @@ class ProductReadService : AccessibilityService() {
             return
         }
         if(localResearchAwaitingDegiro && localResearchWaitTicket==ticket) {
-            clearLocalResearchWait()
+            // Merely seeing DEGIRO again does not mean its Markets UI is
+            // ready: it may show login or be rebuilding after resume.
+            // Preserve the bounded screen lease until the exact ISIN reader
+            // actually starts or the original session is stopped.
+            localResearchAwaitingDegiro=false
+            localResearchWaitTicket=""
             ProductReadDiagnostics.record(
                 ProductReadDiagnostics.Outcome.LOCAL_RESEARCH_DEGIRO_RETURNED)
             PhoneDiagnostics.queue(this)
