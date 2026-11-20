@@ -33,6 +33,18 @@ Die drei Standardschalter bleiben bis zur abgeschlossenen Prüfung **false**:
 
 Nach Schlüsselanlage und Überprüfung zunächst mit deaktiviertem Apply Log/Status prüfen, dann alle drei Schalter bewusst auf `true` setzen. Bei jedem anderen Fehler bleiben sie `false`. Keine automatische Kostenfreigabe. Oracle Free Trial/Always-Free-Kontingente und Kontolimits sind separat zu prüfen.
 
+## Read-only-Abgleich vor späterer Freigabe (kein Apply)
+
+Das aus früheren nutzerseitigen Dateien rekonstruierte Prüfskript liegt unter `ops/oracle_a1_retry/cloudshell_preflight.py`. Es benötigt nur eine bereits authentifizierte Oracle Cloud Shell und die OCID des bestehenden Stacks. Kein zusätzlicher API-Schlüssel in GitHub oder im Chat ist hierfür nötig.
+
+```bash
+python3 ops/oracle_a1_retry/cloudshell_preflight.py '<bestehende-Zürich-Stack-OCID>'
+```
+
+Es führt ausschließlich `oci ... get/list` aus und meldet kategorisierte Instanz-/Terraform-State- und Jobstatus ohne Rohlogs, private Schlüssel oder vollständige OCIDs.
+
+Die historischen, widersprüchlichen Shell-Meldungen `Bob-Instanz vorhanden` und später `ABSENT` ersetzen keine aktuelle direkte Instanzabfrage. Das Programm autorisiert keinen Apply. Die drei Schutzschalter bleiben aus, bis Oracle-Konto, Always-Free-Plan, tatsächlicher Compute-Bestand und API-Rechte ausdrücklich geprüft wurden.
+
 ## Tests, Beobachtung, Not-Aus
 
 Lokale Schutzlogiktests: `node ops/oracle_a1_retry/worker.test.mjs`.
