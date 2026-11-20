@@ -103,10 +103,17 @@ jobs:
       - name: Oracle A1 retry fail-closed and idempotency tests
         run: node ops/oracle_a1_retry/worker.test.mjs
 
-      - name: Cloudflare watchdog isolated tests and bundle dry-run
+      - name: Cloudflare Worker offline source-map and safety build proof
         run: |
+          # Dry-run only; zero Cloudflare credentials, no network deploy, no Worker invocation.
+          # A generated .map is NOT proof that Cloudflare currently has uploaded maps.
           node --test ops/cloudflare-watchdog/worker.test.mjs
-          npx --yes wrangler@4.158.0 deploy --dry-run --config ops/cloudflare-watchdog/wrangler.jsonc
+          npx --yes wrangler@4.158.0 deploy --dry-run --config ops/cloudflare-watchdog/wrangler.jsonc --outdir /tmp/bob-cf-clock
+          python tools/cloudflare_source_map_check.py /tmp/bob-cf-clock
+          npx --yes wrangler@4.158.0 deploy --dry-run --config ops/oracle_a1_retry/wrangler.jsonc --outdir /tmp/bob-cf-oracle
+          python tools/cloudflare_source_map_check.py /tmp/bob-cf-oracle
+          npx --yes wrangler@4.158.0 deploy --dry-run --config ops/cloudflare-ai-review/wrangler.jsonc --outdir /tmp/bob-cf-ai
+          python tools/cloudflare_source_map_check.py /tmp/bob-cf-ai
 
       - name: Browser binary cache
         uses: actions/cache@v4
