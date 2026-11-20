@@ -7,7 +7,7 @@ const pem='-----BEGIN PRIVATE KEY-----\n'+Buffer.from(der).toString('base64')+'\
 const e={ENABLED:'true',ALLOW_APPLY:'true',PLAN_VERIFIED_ALWAYS_FREE:'true',OCI_TENANCY_OCID:'ocid1.tenancy.oc1..test',OCI_USER_OCID:'ocid1.user.oc1..test',OCI_API_FINGERPRINT:'00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00',OCI_PRIVATE_KEY_PEM:pem,OCI_STACK_OCID:'ocid1.ormstack.oc1..test',OCI_PLAN_JOB_OCID:'ocid1.ormjob.oc1..plan'};
 assert.equal(validate({}).status,'disabled');
 assert.equal(validate({...e,OCI_PRIVATE_KEY_PEM:''}).status,'configuration_required');
-const failed={id:'ocid1.ormjob.oc1..last',operation:'APPLY',lifecycleState:'FAILED',timeCreated:new Date(Date.now()-3600000).toISOString()};
+const failed={id:'ocid1.ormjob.oc1..last',operation:'APPLY',lifecycleState:'FAILED',timeCreated:new Date(Date.now()-7200000).toISOString(),timeFinished:new Date(Date.now()-3600000).toISOString()};
 let writes=0, tokens=[];
 function mock(jobs,text='Out of host capacity'){
   writes=0; tokens=[];
@@ -36,10 +36,14 @@ assert.match(tokens[0],/^[0-9a-f]{64}$/);
 assert.equal(await retryToken(failed.id,e.OCI_PLAN_JOB_OCID),tokens[0]);
 assert.notEqual(await retryToken('ocid1.ormjob.oc1..other',e.OCI_PLAN_JOB_OCID),tokens[0]);
 assert.notEqual(await retryToken(failed.id,'ocid1.ormjob.oc1..otherplan'),tokens[0]);
-// Missing, invalid, and future Apply creation dates fail closed.
-for(const timeCreated of [undefined,'invalid',new Date(Date.now()+3600000).toISOString()]){
-  mock([{...failed,timeCreated}]);
+// Missing, invalid, and future Apply finish dates fail closed.
+for(const timeFinished of [undefined,'invalid',new Date(Date.now()+3600000).toISOString()]){
+  mock([{...failed,timeFinished}]);
   assert.equal((await run(e)).status,'cooldown');
   assert.equal(writes,0);
 }
+// A long Apply that failed 5 minutes ago must not retry despite an old creation time.
+mock([{...failed,timeCreated:new Date(Date.now()-7200000).toISOString(),timeFinished:new Date(Date.now()-300000).toISOString()}]);
+assert.equal((await run(e)).status,'cooldown');
+assert.equal(writes,0);
 console.log('oracle-a1-retry: safety guards, signed retry, idempotency and timestamps OK');
