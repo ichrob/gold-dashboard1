@@ -143,6 +143,15 @@ class AndroidStableReleaseTests(unittest.TestCase):
         self.assertIn('MorningListDelivery.waiting && !keyboardVisible()', service)
         self.assertIn('!MorningReadRun.running && !GoldSearchRun.running', service)
         self.assertIn('postListCaptured.all(SeriesEvidence::validIsin)', service)
+        self.assertIn('postListCaptured.size in 1..10 && listImages.length() in 3..4', service)
+        self.assertIn('POST_LIST_SEARCH_CONTEXT_PENDING', service)
+        # A 9/10 server rejection activates only local read-only research,
+        # with one owner session ticket and eight bounded rechecks of the
+        # protected DEGIRO search field. No UI action on an unverified screen.
+        self.assertIn('continueLocalGoldResearch(local.toList(),ticket,0)', service)
+        self.assertIn('PhoneRemote.sessionId()!=ticket', service)
+        self.assertIn('handler.postDelayed({ continueLocalGoldResearch(local,ticket,attempt+1) },500)', service)
+        self.assertIn('LOCAL_RESEARCH_SEARCH_UNAVAILABLE', service)
         self.assertIn('MorningReadPolicy.postCaptureGoldSearchFocusIndex(', service)
 
 
