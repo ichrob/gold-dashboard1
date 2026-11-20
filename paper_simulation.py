@@ -199,6 +199,7 @@ def init(conn):
     __import__('entry_opportunity_study').init(conn)
     __import__('gold_short_scenarios').init(conn)
     __import__('gold_ko_distance_cohorts').init(conn)
+    __import__('gold_intraday_ko_leverage').init(conn)
 
 def sync(conn, payload):
     products=payload.get('products')
@@ -1970,6 +1971,16 @@ def _worker(db):
                         except Exception as ko_study_exc:
                             print('BOB_KO_DISTANCE_STUDY error='+type(ko_study_exc).__name__,
                                   flush=True)
+                        # New KO-backed paper arms compare balanced versus higher
+                        # leverage only when stop/KO clearance and full-stake
+                        # loss caps fit. Never mutate the existing KO cohorts.
+                        try:
+                            with conn.transaction():
+                                __import__('gold_intraday_ko_leverage').tick(
+                                    conn,market,selection,quotes,int(time.time()*1000))
+                        except Exception as leverage_exc:
+                            print('BOB_INTRADAY_KO_LEVERAGE error='+
+                                  type(leverage_exc).__name__,flush=True)
                         print('BOB_PAPER checked profiles='+str(outcomes)+
                               ' direction='+str(market.get('direction'))+
                               ' ready='+str(market.get('ready'))+

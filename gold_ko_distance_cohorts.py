@@ -138,7 +138,7 @@ def _monitor_market(market,p):
     return {**market,"plan":{"unit":"USD/oz","direction":p["direction"]}}
 
 
-def advance(old,market,selection,quotes,now):
+def advance(old,market,selection,quotes,now,*,ko_loss_cap=None,hold_minutes=None,trail=False):
     import paper_simulation,paper_ko_guard
     s=copy.deepcopy(old)
     if not number(now) or (number(s.get("checkedAt")) and now<=s["checkedAt"]):
@@ -191,11 +191,25 @@ def advance(old,market,selection,quotes,now):
                 continue
             if valid_market and market["dataAt"]>p["lastSourceAt"]:
                 sign=1 if p["direction"]=="LONG" else -1
+                # Opt-in, paper-only profit protection. Never loosen a stop;
+                # a refreshed issuer KO barrier is mandatory for tightening.
+                if trail and guard and not p.get("exitDue"):
+                    gain=sign*(market["price"]-p["entrySpot"])
+                    original_risk=p.get("initialStopRisk")
+                    atr=market.get("atr")
+                    if (positive(original_risk) and positive(atr)
+                            and gain>=original_risk
+                            and positive(guard.get("barrierUsd"))):
+                        proposed=market["price"]-sign*max(.75*atr,.5*original_risk)
+                        if (sign*(proposed-p["stop"])>0
+                                and sign*(proposed-guard["barrierUsd"])>.005*p["entrySpot"]):
+                            p["stop"]=proposed
+                            p["trailingStopUpdates"]=p.get("trailingStopUpdates",0)+1
                 if (sign*(market["price"]-p["stop"])<=0
                     or sign*(market["price"]-p["target"])>=0
                     or (market.get("direction") in ("LONG","SHORT")
                         and market["direction"]!=p["direction"])
-                    or now-p["entryAt"]>=MAX_HOLD_MINUTES*MINUTE
+                    or now-p["entryAt"]>=(hold_minutes or MAX_HOLD_MINUTES)*MINUTE
                     or datetime.fromtimestamp(now/1000,ZURICH).strftime("%H:%M")>="21:45"):
                     p["exitDue"]=p.get("exitDue") or now
                 p["lastSourceAt"]=market["dataAt"]
@@ -270,6 +284,10 @@ def advance(old,market,selection,quotes,now):
         risk_frac=p["leverage"]*risk/plan["entry"]
         budget=min(arm["cashEur"]*MAX_EXPOSURE,
                    arm["cashEur"]*RISK_BUDGET/risk_frac) if positive(risk_frac) else 0.
+        # A KO can consume the entire deployed sum even if the technical
+        # stop is tighter. Optional new study caps that worst-case debit.
+        if positive(ko_loss_cap) and ko_loss_cap<=1:
+            budget=min(budget,arm["cashEur"]*ko_loss_cap)
         units=math.floor((budget-FEE_EUR)/(q["ask"]*(1+SLIPPAGE)))
         if units<1 or units>100000:
             arm["lastBlock"]="insufficient-capital"
@@ -288,7 +306,7 @@ def advance(old,market,selection,quotes,now):
             scope="XAU/USD",entryAt=now,lastSourceAt=market["dataAt"],
             lastSpotObservedAt=now,entryQuoteAt=_clock(q.get("askAt")),
             entryAsk=q["ask"],entryDebit=debit,units=units,
-            stop=plan["stop"],target=plan["target"],entrySpot=market["price"],
+            stop=plan["stop"],initialStopRisk=risk,target=plan["target"],entrySpot=market["price"],
             leverage=p["leverage"],entryKoEvidence=p["guard"],
             realOrders=False,brokerExecutionVerified=False)
         s["eligiblePricePairs"]+=1
