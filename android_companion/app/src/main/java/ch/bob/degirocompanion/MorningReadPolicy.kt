@@ -619,12 +619,13 @@ internal object MorningReadPolicy {
             "PROTECTED_ORDER_CONFIRM" -> if(productSearchWithoutLauncher(nodes)==null) return null
             else -> return null
         }
-        val leverage=nodes.filter { normalized(it.text).equals("Hebelprodukte",true) }
-        if(leverage.size!=1)return null
-        val context=leverage.single().selected ||
-            nodes.any { normalized(it.text).equals("Top Ergebnisse",true) } ||
-            nodes.any { normalized(it.text).equals("Alle Ergebnisse in Hebelprodukte",true) }
-        if(!context)return null
+        // Samsung does not always report the selected tab after the reader
+        // has scrolled back (LIST_TAB_SELECTION_UNREPORTED). The single
+        // leverage label plus the original ten captured identities and same
+        // foreground/window (caller) are sufficient to ACTIVATE Gold input,
+        // never sufficient to type an ISIN or approve the imported list.
+        if(nodes.count { normalized(it.text).equals("Hebelprodukte",true) }!=1)
+            return null
         val fields=nodes.indices.filter { nodes[it].editable }
         val index=fields.singleOrNull() ?: return null
         val field=nodes[index]
