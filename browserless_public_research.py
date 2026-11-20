@@ -15,6 +15,7 @@ except ImportError:  # Isolated simulator CI imports server without HTTP depende
     requests = None
 
 API = "https://production-sfo.browserless.io/smart-scrape"
+API_EU = "https://production-ams.browserless.io/smart-scrape"
 MAX_RESPONSE = 131072
 MAX_SG_RESPONSE = 524288  # Browserless includes public source HTML plus markdown/json.
 MAX_MONTHLY_CALLS = 12
@@ -132,7 +133,8 @@ def source_identity_evidence(markdown, isin, source):
     return 'sg-product-title-wkn-only'
 
 
-def safe_page_diagnostics(markdown, isin, source, strategy):
+def safe_page_diagnostics(markdown, isin, source, strategy, *, raw_text=None,
+                          raw_html=None, metadata=None, attempted=None):
     """Finite, non-identifying counters only. Never return HTML, raw text or keys."""
     text = markdown.upper() if isinstance(markdown, str) else ""
     wkn = isin[5:11] if isinstance(isin, str) and len(isin) == 12 else ""
@@ -153,11 +155,29 @@ def safe_page_diagnostics(markdown, isin, source, strategy):
     strategy = strategy if strategy in (
         'http-fetch', 'http-proxy', 'browser', 'browser-captcha', 'cache'
     ) else 'unknown'
+    html = raw_html.upper() if isinstance(raw_html, str) and len(raw_html) <= 800000 else ""
+    dom_text = raw_text.upper() if isinstance(raw_text, str) and len(raw_text) <= 500000 else ""
+    in_html = bool(isin and re.search(
+        r'(?<![A-Z0-9])' + re.escape(isin) + r'(?![A-Z0-9])', html))
+    in_dom = bool(isin and re.search(
+        r'(?<![A-Z0-9])' + re.escape(isin) + r'(?![A-Z0-9])', dom_text))
+    title = metadata.get('title', '') if isinstance(metadata, dict) else ''
+    title = title.upper() if isinstance(title, str) else ''
+    title_type = ('product-hint' if wkn and wkn in title
+                  else 'issuer-generic' if ('SOCIETE GENERALE' in title or 'SOCIÉTÉ GÉNÉRALE' in title or 'SG ZERTIFIKATE' in title)
+                  else 'other-or-empty')
+    sequence = attempted if isinstance(attempted, list) else []
+    safe_sequence = [v for v in sequence[:5] if v in
+                     ('http-fetch', 'http-proxy', 'browser', 'browser-captcha', 'cache')]
     return dict(
         providerStrategy=strategy, markdownSizeClass=size,
         hasExactIsin=explicit, hasMatchingWknHeading=heading,
         hasProductMarkers=markers, hasOtherProductIsins=other,
         possibleChallenge=challenge, sgFullContentRequested=(source == 'sg'),
+        hasExactIsinInRawHtmlOnly=in_html and not explicit,
+        hasExactIsinInRawTextOnly=in_dom and not explicit,
+        sourceTitleClass=title_type, strategyAttempted=safe_sequence,
+        browserlessRegion='ams' if source == 'sg' else 'sfo',
         note='Nur geschlossene Diagnosemerkmale; kein Seiteninhalt oder Originalkurs.'
     )
 
@@ -186,14 +206,19 @@ def extract(isin, source="sg", *, now=None):
     if state != "reserved":
         return _safe_failure(isin, source, state)
     try:
+        # SG: one inexpensive EU scrape with Markdown + DOM text only.
+        # AI extraction of a wrong generic page wastes free units, so do not
+        # use "json" until a correct source has actually been observed.
+        payload = {"url": url, "formats": ["markdown", "rawText"]
+                   if source == "sg" else ["markdown", "json"],
+                   "onlyMainContent": source != "sg", "maxAge": 0,
+                   "proxy": "datacenter"}
+        if source != "sg":
+            payload["jsonOptions"] = {"schema": _SCHEMA, "prompt": _PROMPT}
         with requests.post(
-            API, params={"token": token, "timeout": 25000},
-            json={"url": url, "formats": ["markdown", "json"],
-                  "jsonOptions": {"schema": _SCHEMA, "prompt": _PROMPT},
-                  # Main-only stripping can omit SG's product heading and
-                  # identity table. Keep the entire public SG product page.
-                  "onlyMainContent": source != "sg", "maxAge": 0,
-                  "proxy": "datacenter"},
+            API_EU if source == "sg" else API,
+            params={"token": token, "timeout": 25000},
+            json=payload,
             timeout=(5, 35), stream=True, allow_redirects=False,
         ) as response:
             if response.status_code != 200:
@@ -217,7 +242,27 @@ def extract(isin, source="sg", *, now=None):
         if identity_evidence is None:
             return _safe_failure(
                 isin, source, "identity-not-proven",
-                safe_page_diagnostics(markdown, isin, source, data.get("strategy")))
+                safe_page_diagnostics(markdown, isin, source, data.get("strategy"),
+                                      raw_text=data.get("rawText"), raw_html=data.get("content"),
+                                      metadata=data.get("metadata"), attempted=data.get("attempted")))
+        if source == "sg":
+            from browserless_sg_markdown import extract_public_fields
+            safe = extract_public_fields(markdown)
+            if not safe:
+                return _safe_failure(isin, source, "source-fields-unavailable")
+            return dict(isin=isin, source="Browserless Smart Scrape · sg",
+                        sourceUrl=url, state="unverified-research",
+                        checkedAt=now.isoformat(), fields=safe,
+                        sourceIdentityEvidence=identity_evidence,
+                        sourceIdentityLimited=identity_evidence=="sg-product-title-wkn-only",
+                        sourceIsinObserved=identity_evidence=="exact-isin-in-page",
+                        providerStrategy=data.get("strategy") if data.get("strategy") in
+                        ("http-fetch", "http-proxy", "browser", "browser-captcha", "cache") else "unknown",
+                        providerRegion="ams", aiExtractionUsed=False,
+                        originalQuoteTimeVerified=False, originalTermsVerified=False,
+                        researchOnly=True, eligible=False, tradeApproved=False,
+                        isDegiroQuote=False,
+                        note="Reine SG-Textmerkmale, kein Originalpreis- oder Handelsnachweis.")
         if not isinstance(fields, dict):
             return _safe_failure(isin, source, "extraction-not-proven")
         if identity_evidence == "exact-isin-in-page":

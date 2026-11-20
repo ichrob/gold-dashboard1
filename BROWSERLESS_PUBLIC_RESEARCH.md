@@ -127,3 +127,41 @@ Zugangsdaten an Browserless zu übertragen.
 Beispiel: DE000FG77FN1 hat nach bestätigter SG-Produktseite seinen letzten Handelstag am 19.11.2026 (Bewertung am 20.11.2026) und ist für eine neue fortlaufende Kursstudie ungeeignet. Die Liste muss vor einem Abruf auf tatsächliche aktuelle Laufzeit und Knock-out geprüft werden.
 
 BNP-Paribas-Seiten nutzen die offizielle feste Form https://derivate.bnpparibas.com/product-details/DE000BY7UKR4/ (Beispiel-ISIN). Der vorhandene Validierungspfad verlangt die exakte ISIN sowohl im Seiten-Markdown als auch in der KI-Ausgabe. Unabhängiger Laufzeit-, Emittenten-, Handelsstatus- und Kurszeitnachweis bleibt notwendig. Ein leerer Vergleich mit SG ist bei BNP korrekt; er gibt keine Daten frei.
+
+## SG-Quellproblem · 20.11.2026, Diagnose 10:24 CH
+
+Dritter einzelner, vom Nutzer gestarteter Browserless-Aufruf für
+DE000FB0A490 auf öffentlicher SG-Seite:
+
+- Browserless: strategy=browser, markdownSizeClass=long, sgFullContentRequested=true
+- hasExactIsin=false, hasMatchingWknHeading=false,
+  hasProductMarkers=false, hasOtherProductIsins=false
+- possibleChallenge=false ist KEIN Beweis gegen andere Schutzseiten,
+  Cookie-Barrieren oder eine regionale Abweichung.
+
+HTTP 200 beweist nur einen erfolgreichen Browserless-Providerabruf.
+Die gelieferte Seite ist nicht als SG-Produktseite nachgewiesen.
+Die ursprüngliche Rohantwort wurde nicht gespeichert. Ursache offen.
+
+Nächste begrenzte technische Schritte:
+
+- Nur SG verwendet die offizielle Shared-Fleet-Region
+  https://production-ams.browserless.io/smart-scrape statt SFO.
+  Browserless dokumentiert Amsterdam, London und San Francisco.
+  Regionalwahl ist eine Hypothese, kein nachgewiesener SG-Fix.
+- Für SG werden ausschließlich markdown und rawText angefordert.
+  Damit entfällt die frühere KI-JSON-Extraktionsgebühr für
+  falsch geladene SG-Seiten. Browserzeit und ggf. Proxy kosten weiterhin
+  Einheiten des kostenlosen 1.000er-Monatskontingents.
+- SG-Feldhinweise werden aus klar beschrifteten Stammdaten-Zeilen
+  konservativ ausgelesen. Bid/Ask und Originalkurszeiten werden NIE
+  aus der vereinfachten SG-Seite erfunden.
+- Neue anonyme Fehlerdiagnose zeigt, ob ISIN nur in HTML oder
+  Rohtext statt in Markdown vorkommt, die Klasse des Seitentitels
+  und eine strikt gefilterte Anbieter-Strategiefolge.
+  HTML-Treffer allein sind NIE ein Identitäts- oder Handelsnachweis.
+- Bobs bestehender SG-Direktimport bleibt unabhängig und vorrangig,
+  keine automatische Zusatzabfrage anderer Provider.
+- Kein Browserless-Autoretry; API nur durch Nutzerklick;
+  immer researchOnly=true, eligible=false, tradeApproved=false,
+  isDegiroQuote=false. Kein DEGIRO-Konto/PIN, keine Orders.
