@@ -1315,16 +1315,32 @@ def analyze_latest_bundle(bundle, settings, latest, analyze, clock):
 
 
 def quote_focus(products, market):
+    """Warm current-direction quotes BEFORE entry; never authorize an entry.
+
+    The original Top-3 slice could leave a fourth valid SHORT without a timely
+    issuer bid/ask when the first three were missing, stale or terminal. The
+    common four-slot quote scheduler still enforces its request bounds.
+    """
     if market.get('ready') is not True or market.get('priceFresh') is not True:
         return []
-    side=market.get('direction')
-    if side not in ('LONG','SHORT'):
-        side=(market.get('entryPreparation') or {}).get('direction')
-    if side not in ('LONG','SHORT'):
+    side = market.get('direction')
+    if side not in ('LONG', 'SHORT'):
+        side = (market.get('entryPreparation') or {}).get('direction')
+    if side not in ('LONG', 'SHORT'):
+        trend = market.get('trendContext') or {}
+        if trend.get('available') is True and trend.get('intact') is True:
+            side = trend.get('direction')
+    if side not in ('LONG', 'SHORT'):
         return []
-    return [p['isin'] for p in products if p.get('isin') and
-            p.get('productDirection')==side and not p.get('knockedOut') and
-            not re.search(r'\b(?:faktor|factor)\b',p.get('name',''),re.I)][:3]
+    return [p['isin'] for p in products
+            if isinstance(p, dict) and isinstance(p.get('isin'), str)
+            and p['isin'] and p.get('productDirection') == side
+            and p.get('knockedOut') is not True
+            and not (isinstance(p.get('quote'), dict)
+                and p['quote'].get('productVerified') is True
+                and (p['quote'].get('metadata') or {}).get('status') not in (None, 1))
+            and not re.search(r'\b(?:faktor|factor)\b',
+                              str(p.get('name') or ''), re.I)]
 
 
 def latest_paper_bundle():
@@ -1449,13 +1465,13 @@ def quote_cache(products, active, now, preferred=()):
         else:
             observations[isin] = refreshed
         if recovery:
-            observations[isin]['sourceRecovery']=recovery
-            if any(event['state'] in ('failed','waiting') for event in recovery):
-                observations[isin]['eligible']=False
+            # Optional source failures remain visible in diagnostics, but do
+            # not demote verified issuer quotes in either paper or push data.
+            # They also never turn an incomplete primary quote into a valid one.
+            if isinstance(observations.get(isin), dict):
+                observations[isin]['sourceRecovery']=copy.deepcopy(recovery)
             if isin in observed:
-                observed[isin]['sourceRecovery'] = copy.deepcopy(recovery)
-                if any(event['state'] in ('failed','waiting') for event in recovery):
-                    observed[isin]['eligible'] = False
+                observed[isin]['sourceRecovery']=copy.deepcopy(recovery)
     with _guard:
         _observed_snapshot = observed
     return observations

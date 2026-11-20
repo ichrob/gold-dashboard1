@@ -878,6 +878,8 @@ def _get_quote_bounded(isin):
     output = apply_price_continuity(output)
     if recovery:
         output['sourceRecovery'] = recovery
-        if any(event['state'] in ('failed', 'waiting') for event in recovery):
-            output['eligible'] = False  # Incomplete source checks cannot grant approval.
+        # The checked issuer result owns eligibility. These stages are optional
+        # enrichers: a failed/queued secondary lookup must not revoke an
+        # independently verified original bid/ask, nor grant permission to an
+        # incomplete one. Every real quote/KO gate remains source-clocked.
     return output
