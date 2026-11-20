@@ -356,38 +356,15 @@ class ProductReadService : AccessibilityService() {
             } else PhoneRemote.stop(this,"COMPLETED")
         }
         MorningListDelivery.onProvisionalResearch={ local ->
-            // Owner explicitly pressed Bob starten for Gold + missing product
-            // reads. The SERVER rejected one list row: do not promote the
-            // unverified local candidate set into a trading source. Reuse
-            // exactly the existing per-ISIN semantic search/read/BACK engine
-            // within the ORIGINAL unlocked and owner-opened session.
-            val power=getSystemService(POWER_SERVICE) as PowerManager
-            val keyguard=getSystemService(KEYGUARD_SERVICE) as KeyguardManager
-            check(PhoneRemote.active() && power.isInteractive &&
-                !keyguard.isKeyguardLocked && !keyguard.isDeviceLocked &&
-                !GoldSearchRun.running && !MorningReadRun.running &&
-                !PinReadinessProbe.running &&
-                !ProductReadRequest.active(SystemClock.elapsedRealtime())) {
-                "Lokale ISIN-Recherche benötigt die bestehende entsperrte Lesesitzung"
-            }
+            // The server rejected precisely one of ten list rows. Begin the
+            // quarantined existing per-ISIN reader only in the original,
+            // owner-started unlocked session. Samsung can take a few frames
+            // after scrolling the Gold list before exposing the EditText.
             check(local.size in 1..10 && local.distinct()==local &&
                 local.all(SeriesEvidence::validIsin))
-            val root=productRoot(false) ?: error("DEGIRO-Suchseite nicht erreichbar")
-            val refs=mutableListOf<AccessibilityNodeInfo>()
-            val view=mutableListOf<MorningReadPolicy.Node>()
-            val ready=try {
-                check(root.packageName?.toString()==ProductScreenEvidence.PACKAGE)
-                navigationTree(root,refs,view)
-                val action=MorningReadPolicy.localResearchDecision(
-                    view,local.first(),keyboardVisible(),resultOpened=false)
-                action.kind in setOf(MorningReadPolicy.Kind.SEARCH,
-                    MorningReadPolicy.Kind.FOCUS,MorningReadPolicy.Kind.QUERY) &&
-                    !MorningReadPolicy.genericTurboDirectory(view)
-            } finally { refs.forEach { it.recycle() };root.recycle() }
-            check(ready) { "DEGIRO nicht eindeutig auf der sicheren Produktsuche" }
-            MorningReadRun.beginDiscovered(this,local,researchOnly=true)
-            ProductReadRequest.start(SystemClock.elapsedRealtime())
-            PhoneDiagnostics.queue(this)
+            val ticket=PhoneRemote.sessionId()
+            check(PhoneRemote.active())
+            continueLocalGoldResearch(local.toList(),ticket,0)
         }
         MorningListDelivery.onFreshCaptureRequired={
             // A previously rejected saved batch must NOT consume a whole
@@ -1421,7 +1398,7 @@ class ProductReadService : AccessibilityService() {
                 MorningListDelivery.waiting && !keyboardVisible() &&
                 !ProductReadRequest.active(SystemClock.elapsedRealtime()) &&
                 !MorningReadRun.running && !GoldSearchRun.running &&
-                postListCaptured.size==10 &&
+                postListCaptured.size in 1..10 && listImages.length() in 3..4 &&
                 postListCaptured.all(SeriesEvidence::validIsin)
         } else if(remoteQuery == null) {
             ProductReadRequest.active(SystemClock.elapsedRealtime())
@@ -1856,6 +1833,58 @@ class ProductReadService : AccessibilityService() {
     /** A validated list has been captured locally. Return to the search header
      * while remote OCR is pending; DO NOT type any ISIN until ten rows are
      * confirmed by the existing server gate. Bound the scroll and window. */
+    /** The UI can lag the authenticated 9/10 research receipt. Retry only
+     * classification of the current DEGIRO search within the same owner-opened,
+     * unlocked session. No input, gesture, order, PIN or stale-session reuse
+     * occurs in this retry. A validated SEARCH/FOCUS/QUERY starts the EXISTING
+     * exact-ISIN reader, whose protections are rechecked before each action. */
+    private fun continueLocalGoldResearch(local:List<String>,ticket:String,attempt:Int) {
+        if(!PhoneRemote.active() || PhoneRemote.sessionId()!=ticket)return
+        val power=getSystemService(POWER_SERVICE) as PowerManager
+        val keyguard=getSystemService(KEYGUARD_SERVICE) as KeyguardManager
+        if(!power.isInteractive || keyguard.isKeyguardLocked || keyguard.isDeviceLocked) {
+            PhoneRemote.stop(this,"SCREEN_LOCKED");return
+        }
+        if(GoldSearchRun.running || MorningReadRun.running || PinReadinessProbe.running ||
+            ProductReadRequest.active(SystemClock.elapsedRealtime())) {
+            ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LOCAL_RESEARCH_SESSION_BLOCKED)
+            PhoneRemote.stop(this,"LOCAL_RESEARCH_START_BLOCKED");return
+        }
+        val root=productRoot(false)
+        val live=mutableListOf<AccessibilityNodeInfo>()
+        val descriptions=mutableListOf<MorningReadPolicy.Node>()
+        val safe=try {
+            if(root==null) false else if(root.packageName?.toString()!=ProductScreenEvidence.PACKAGE) {
+                ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LOCAL_RESEARCH_VIEW_LOST)
+                false
+            } else {
+                navigationTree(root,live,descriptions)
+                val decision=MorningReadPolicy.localResearchDecision(
+                    descriptions,local.first(),keyboardVisible(),resultOpened=false)
+                decision.kind in setOf(MorningReadPolicy.Kind.SEARCH,
+                    MorningReadPolicy.Kind.FOCUS,MorningReadPolicy.Kind.QUERY) &&
+                    !MorningReadPolicy.genericTurboDirectory(descriptions)
+            }
+        } catch(_:Exception) { false }
+          finally { live.forEach { it.recycle() };root?.recycle() }
+        if(safe) {
+            // Every pending callback is tied to ticket; protect against a
+            // different user session starting before the retry completed.
+            if(!PhoneRemote.active() || PhoneRemote.sessionId()!=ticket)return
+            ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LOCAL_RESEARCH_SEARCH_READY)
+            MorningReadRun.beginDiscovered(this,local,researchOnly=true)
+            ProductReadRequest.start(SystemClock.elapsedRealtime())
+            PhoneDiagnostics.queue(this)
+        } else if(attempt<8) {
+            ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LOCAL_RESEARCH_SEARCH_RETRY)
+            handler.postDelayed({ continueLocalGoldResearch(local,ticket,attempt+1) },500)
+        } else {
+            ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LOCAL_RESEARCH_SEARCH_UNAVAILABLE)
+            PhoneDiagnostics.queue(this)
+            PhoneRemote.stop(this,"LOCAL_RESEARCH_START_BLOCKED")
+        }
+    }
+
     private fun returnToSearchWhileImporting(expectedWindow:Int, captured:Set<String>, attempt:Int) {
         if(attempt>=6 || !MorningListDelivery.waiting || !PhoneRemote.active() ||
             MorningReadRun.running || GoldSearchRun.running) return
@@ -1902,7 +1931,16 @@ class ProductReadService : AccessibilityService() {
             // Do not scroll an already visible but unverified input into an
             // arbitrary launcher; the field/context must pass the policy.
             if(descriptions.any { it.editable &&
-                MorningReadPolicy.isSearchInput(it.id,it.description,it.hint) }) return
+                MorningReadPolicy.isSearchInput(it.id,it.description,it.hint) }) {
+                // A valid input is already visible, but Samsung has not yet
+                // exposed the associated leverage context after list scroll.
+                // Re-classify a few frames later rather than silently stop.
+                ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.POST_LIST_SEARCH_CONTEXT_PENDING)
+                if(attempt<5) handler.postDelayed({
+                    returnToSearchWhileImporting(expectedWindow,captured,attempt+1)
+                },650)
+                return
+            }
             val backward=live.indices.filter { i ->
                 val n=live[i]
                 n.isVisibleToUser && n.isEnabled && !n.isEditable && !n.isPassword &&
