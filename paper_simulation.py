@@ -749,6 +749,39 @@ def campaign_source_preview(control, bundle, market, now):
     return control.get('campaignEstimatePreview')
 
 
+def paper_entry_candidates(selection):
+    """Keep the displayed top three, then try other ranked PAPER candidates.
+
+    The selector's optional extended list contains only non-indicative items
+    from the same source and ranking run. This helper grants no entry: the
+    existing fresh-quote, KO, budget, direction, stop/target and day-risk
+    checks still apply in ranked_entry_candidate() and run_once().
+    Older selectors without paperCandidates retain their original behavior.
+    """
+    if not isinstance(selection, dict):
+        return []
+    result = []
+    seen = set()
+    for field in ('choices', 'paperCandidates'):
+        rows = selection.get(field)
+        if not isinstance(rows, list):
+            continue
+        for choice in rows:
+            if (not isinstance(choice, dict) or
+                    not isinstance(choice.get('isin'), str) or not choice['isin']):
+                continue
+            if field == 'paperCandidates' and (
+                    choice.get('indicative') or choice.get('estimated')):
+                continue
+            if choice['isin'] in seen:
+                continue
+            seen.add(choice['isin'])
+            result.append(choice)
+            if len(result) >= 12:
+                return result
+    return result
+
+
 def ranked_entry_candidate(candidates, quotes, market, now, budget, cost_model=None,
                            require_ko=False):
     """Pick the first *usable* ranked paper candidate, not just the first KO-safe one.
@@ -887,7 +920,7 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
             plan=market.get('plan')
             excluded=control.get('koExcluded') or {}
             blocked=set(excluded.get('isins') or []) if excluded.get('day')==day else set()
-            candidates=[x for x in (selection.get('choices') or []) if x.get('isin') not in blocked]
+            candidates=[x for x in paper_entry_candidates(selection) if x.get('isin') not in blocked]
             # Preserve ranking among eligible candidates, skipping stale,
             # unaffordable, direction-mismatched or unverified KO products.
             # A blocked first choice must not hide a valid lower-ranked one.
