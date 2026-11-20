@@ -776,8 +776,15 @@ class MorningReadPolicyTest {
         assertEquals(0,MorningReadPolicy.postCaptureGoldSearchFocusIndex(
             listOf(field,MorningReadPolicy.Node("Hebelprodukte"),
                 MorningReadPolicy.Node("Top Ergebnisse")),captured))
-        assertNull(MorningReadPolicy.postCaptureGoldSearchFocusIndex(verified,
+        // Previous failure: the device sees a nonempty valid subset while
+        // the server independently rejects the tenth row. FOCUS is allowed,
+        // but this never validates or imports any of these local candidates.
+        assertEquals(0,MorningReadPolicy.postCaptureGoldSearchFocusIndex(verified,
             captured.take(9).toSet()))
+        assertEquals(0,MorningReadPolicy.postCaptureGoldSearchFocusIndex(verified,
+            captured.take(1).toSet()))
+        assertNull(MorningReadPolicy.postCaptureGoldSearchFocusIndex(verified,
+            emptySet()))
         assertNull(MorningReadPolicy.postCaptureGoldSearchFocusIndex(verified,
             captured.drop(1).toSet()+"INVALID"))
         assertNull(MorningReadPolicy.postCaptureGoldSearchFocusIndex(
@@ -798,6 +805,32 @@ class MorningReadPolicyTest {
             verified+MorningReadPolicy.Node("Stückzahl",editable=true),captured))
         assertNull(MorningReadPolicy.postCaptureGoldSearchFocusIndex(
             verified+MorningReadPolicy.Node("Order bestätigen"),captured))
+    }
+
+    @Test fun nineRowResearchOnSamsungReusesTheAlreadyWorkingGoldField() {
+        val target="DE000FD0S0G4"
+        val search=MorningReadPolicy.Node("Gold",id="bob:search_input",
+            editable=true,enabled=true,focused=false,clickAction=true)
+        val page=listOf(search,
+            MorningReadPolicy.Node("Hebelprodukte",selected=true),
+            MorningReadPolicy.Node("Top Ergebnisse"),
+            MorningReadPolicy.Node("K",clickable=true),
+            MorningReadPolicy.Node("V",clickable=true))
+        assertEquals(MorningReadPolicy.Kind.FOCUS,
+            MorningReadPolicy.localResearchDecision(page,target,
+                keyboardReady=false,resultOpened=false).kind)
+        assertEquals(MorningReadPolicy.Kind.QUERY,
+            MorningReadPolicy.localResearchDecision(
+                page.mapIndexed { i,n -> if(i==0)n.copy(focused=true) else n },
+                target,keyboardReady=true,resultOpened=false).kind)
+        assertEquals(MorningReadPolicy.Kind.BLOCK,
+            MorningReadPolicy.localResearchDecision(page+
+                MorningReadPolicy.Node("Order bestätigen"),target,
+                keyboardReady=true,resultOpened=false).kind)
+        assertEquals(MorningReadPolicy.Kind.BLOCK,
+            MorningReadPolicy.localResearchDecision(page+
+                MorningReadPolicy.Node("PIN",editable=true,password=true),target,
+                keyboardReady=true,resultOpened=false).kind)
     }
 
     @Test fun headerOnlyAfterScrollingBackAllowsOnlyExactGoldSearchField() {
