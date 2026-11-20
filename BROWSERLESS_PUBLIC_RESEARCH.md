@@ -165,3 +165,37 @@ Nächste begrenzte technische Schritte:
 - Kein Browserless-Autoretry; API nur durch Nutzerklick;
   immer researchOnly=true, eligible=false, tradeApproved=false,
   isDegiroQuote=false. Kein DEGIRO-Konto/PIN, keine Orders.
+
+
+## Provider-Ablehnung nach EU-Regionalwechsel (20.11.2026)
+
+Der fünfte sichtbare Versuch? Nein: Belegt sind drei SG-Anfragen mit
+identity-not-proven sowie am 20.11. um 14:42 CH ein SG-Abruf mit
+provider-unavailable. Die anschließende Anzeige already-attempted bedeutet,
+dass Bob keine neue Browserless-Anfrage abgeschickt hat. Der konkrete
+HTTP-Status des ursprünglichen AMS-Abrufs wurde von der alten Version
+nicht gespeichert, so dass 400, 401, 403, 429 und 5xx NICHT rückwirkend
+unterschieden werden können.
+
+- Browserless-Dokumentation: AMS, LON und SFO sind Shared-Fleet-Adressen;
+  403 kann u.a. auf einen falschen Regionalendpunkt oder Berechtigungen
+  hinweisen. Das beweist NICHT die Ursache des konkreten AMS-Fehlers.
+- VORSICHTIGE RÜCKKEHR: SG verwendet wieder production-sfo.browserless.io,
+  weil SFO den gleichen API-Schlüssel zuvor mit HTTP 200 akzeptiert hatte.
+  Die kostenärmere SG-Variante bleibt ohne KI-JSON, mit markdown und rawText
+  sowie strengem Produktidentitätsnachweis erhalten.
+- Provider-HTTP-Status (100–599) und neutrale Fehlerkategorie werden
+  künftig ohne Body, URL oder API-Token zurückgegeben.
+- Ein zweiter Klick mit derselben ISIN/Quelle im gleichen Serverprozess
+  liefert, sofern vorhanden, den zuvor gespeicherten sicheren HTTP-Status
+  zusammen mit already-attempted. Es erfolgt dabei KEIN weiterer
+  Provideraufruf. Das ist ein Prozessspeicher, keine dauerhafte Rechnung
+  oder globale Monats-Quota.
+- Bei jeder Providerablehnung gilt weiterhin researchOnly=true,
+  eligible=false, tradeApproved=false und fields={}.
+- Weiterhin KEIN automatischer erneuter Abruf, kein kostenpflichtiger
+  Plan, keine Anmeldung oder Bedienung des DEGIRO-Kontos.
+
+Der Rückwechsel ist ein begründeter Reparaturversuch, nicht der Nachweis,
+dass SG die korrekten Produktdaten liefert. Der bestehende direkte
+SG-Emittentenimport bleibt für Bob primär.

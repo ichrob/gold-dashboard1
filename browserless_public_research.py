@@ -15,7 +15,7 @@ except ImportError:  # Isolated simulator CI imports server without HTTP depende
     requests = None
 
 API = "https://production-sfo.browserless.io/smart-scrape"
-API_EU = "https://production-ams.browserless.io/smart-scrape"
+API_EU = "https://production-ams.browserless.io/smart-scrape"  # Not used for SG until regional failure resolved.
 MAX_RESPONSE = 131072
 MAX_SG_RESPONSE = 524288  # Browserless includes public source HTML plus markdown/json.
 MAX_MONTHLY_CALLS = 12
@@ -23,6 +23,7 @@ MAX_DAILY_CALLS = 3
 FREE_CONFIRMATION_ENV = "BOB_BROWSERLESS_FREE_ACCOUNT_CONFIRMED"
 _LOCK = threading.Lock()
 _RESERVED = set()
+_LAST_PROVIDER_ERRORS = {}  # No bodies, tokens, URLs or full request content.
 _FIELDS = ("direction", "knockOut", "bid", "ask", "quoteTime",
            "leverage", "leverageTime", "marketStatus", "underlying", "currency")
 _SCHEMA = {
@@ -65,6 +66,8 @@ def _reserve(isin, source, now):
     key = (month, day, isin, source)
     with _LOCK:
         _RESERVED.intersection_update({k for k in _RESERVED if k[0] == month})
+        for stale in [k for k in _LAST_PROVIDER_ERRORS if k[0] != month]:
+            del _LAST_PROVIDER_ERRORS[stale]
         if any(k[2:] == (isin, source) for k in _RESERVED):
             return "already-attempted"
         if len(_RESERVED) >= MAX_MONTHLY_CALLS:
@@ -74,6 +77,42 @@ def _reserve(isin, source, now):
         # Limit each (ISIN, source) once per process, including failed calls.
         _RESERVED.add(key)
         return "reserved"
+
+
+def _http_error_category(status):
+    """Closed error labels only; no untrusted provider text is relayed."""
+    if type(status) is not int or not 100 <= status <= 599:
+        return "unknown"
+    return {
+        400: "invalid-request",
+        401: "authentication-or-plan",
+        402: "payment-or-quota",
+        403: "region-or-permission",
+        404: "endpoint-not-found",
+        408: "timeout",
+        413: "request-too-large",
+        422: "invalid-request",
+        429: "rate-limit",
+    }.get(status, "provider-server-error" if status >= 500 else "provider-other-http")
+
+
+def _record_http_failure(isin, source, now, status):
+    """Remember only bounded failure metadata for an in-process duplicate click."""
+    valid = status if type(status) is int and 100 <= status <= 599 else None
+    safe = {"providerHttpStatus": valid,
+            "providerErrorCategory": _http_error_category(status),
+            "providerRegion": "sfo",
+            "providerRetryStarted": False,
+            "providerErrorBodyStored": False}
+    with _LOCK:
+        _LAST_PROVIDER_ERRORS[(now.strftime("%Y-%m"), isin, source)] = safe
+    return _safe_failure(isin, source, "provider-unavailable", safe)
+
+
+def _prior_provider_error(isin, source, now):
+    with _LOCK:
+        old = _LAST_PROVIDER_ERRORS.get((now.strftime("%Y-%m"), isin, source))
+        return dict(old) if old else None
 
 
 def readiness():
@@ -177,7 +216,7 @@ def safe_page_diagnostics(markdown, isin, source, strategy, *, raw_text=None,
         hasExactIsinInRawHtmlOnly=in_html and not explicit,
         hasExactIsinInRawTextOnly=in_dom and not explicit,
         sourceTitleClass=title_type, strategyAttempted=safe_sequence,
-        browserlessRegion='ams' if source == 'sg' else 'sfo',
+        browserlessRegion='sfo',
         note='Nur geschlossene Diagnosemerkmale; kein Seiteninhalt oder Originalkurs.'
     )
 
@@ -204,9 +243,13 @@ def extract(isin, source="sg", *, now=None):
     token = os.environ.get("BROWSERLESS_API_TOKEN", "").strip()
     state = _reserve(isin, source, now)
     if state != "reserved":
-        return _safe_failure(isin, source, state)
+        return _safe_failure(isin, source, state,
+                             _prior_provider_error(isin, source, now)
+                             if state == "already-attempted" else None)
     try:
-        # SG: one inexpensive EU scrape with Markdown + DOM text only.
+        # SG: restore the SFO API endpoint that previously accepted this token.
+        # AMS coincided with HTTP rejection, but no previous status was recorded.
+        # Keep no-AI extraction and all financial evidence gates unchanged.
         # AI extraction of a wrong generic page wastes free units, so do not
         # use "json" until a correct source has actually been observed.
         payload = {"url": url, "formats": ["markdown", "rawText"]
@@ -216,13 +259,14 @@ def extract(isin, source="sg", *, now=None):
         if source != "sg":
             payload["jsonOptions"] = {"schema": _SCHEMA, "prompt": _PROMPT}
         with requests.post(
-            API_EU if source == "sg" else API,
+            API,
             params={"token": token, "timeout": 25000},
             json=payload,
             timeout=(5, 35), stream=True, allow_redirects=False,
         ) as response:
             if response.status_code != 200:
-                return _safe_failure(isin, source, "provider-unavailable")
+                return _record_http_failure(isin, source, now,
+                                            response.status_code)
             chunks, size = [], 0
             for chunk in response.iter_content(16384):
                 size += len(chunk)
@@ -258,7 +302,7 @@ def extract(isin, source="sg", *, now=None):
                         sourceIsinObserved=identity_evidence=="exact-isin-in-page",
                         providerStrategy=data.get("strategy") if data.get("strategy") in
                         ("http-fetch", "http-proxy", "browser", "browser-captcha", "cache") else "unknown",
-                        providerRegion="ams", aiExtractionUsed=False,
+                        providerRegion="sfo", aiExtractionUsed=False,
                         originalQuoteTimeVerified=False, originalTermsVerified=False,
                         researchOnly=True, eligible=False, tradeApproved=False,
                         isDegiroQuote=False,
@@ -368,7 +412,8 @@ PANEL = r"""
    const help={
     'identity-not-proven':'Die Browserless-Seite zeigt die Produktidentität nicht ausreichend eindeutig. Keine Daten übernommen. Die anonymisierte Diagnose im Ergebnis zeigt, welche Produktmerkmale fehlen. Bitte nicht denselben Abruf wiederholen.',
     'extraction-not-proven':'Die KI-Ausgabe enthält keine passende vollständige ISIN. Keine Daten übernommen.',
-    'already-attempted':'Diese ISIN/Quelle wurde in diesem Serverlauf bereits geprüft. Kein zweiter Abruf gestartet.'
+    'already-attempted':'Bereits geprüft, kein erneuter Browserless-Aufruf. Die ursprüngliche HTTP-Ablehnung wird angezeigt, soweit im laufenden Prozess gespeichert.',
+    'provider-unavailable':'Browserless hat die Anfrage per HTTP abgewiesen. Der genaue HTTP-Status und eine neutrale Kategorie stehen im Diagnoseblock. Kein automatischer Retry.'
    };
    output.textContent=(help[data.state]?help[data.state]+'\n\n':'')+JSON.stringify(data,null,2);
   }catch{output.textContent='Recherche derzeit nicht verfügbar. Keine Daten verändert.'}
