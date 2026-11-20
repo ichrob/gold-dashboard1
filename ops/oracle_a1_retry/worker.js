@@ -61,6 +61,13 @@ async function listJobs(env){
   }
   return {error:'job_list_too_long'};
 }
+// OCI retry tokens are idempotent for 24h. A stable token for the same failed
+// Apply and reviewed plan prevents overlapping Cloudflare runs creating two jobs.
+async function retryToken(failedJobId,planJobId){
+  const data=new TextEncoder().encode('bob-oracle-a1-retry|'+failedJobId+'|'+planJobId);
+  const bytes=new Uint8Array(await crypto.subtle.digest('SHA-256',data));
+  return Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');
+}
 const state=j=>String(j.lifecycleState||'').toUpperCase();
 async function run(env){
   const invalid=validate(env);if(invalid)return invalid;
@@ -74,8 +81,10 @@ async function run(env){
   const last=applies[0];
   if(!last)return {status:'no_previous_apply'};
   if(state(last)!=='FAILED')return {status:'non_failed_last_apply'};
-  const age=Date.now()-new Date(last.timeCreated||0).getTime();
-  if(!Number.isFinite(age)||age<25*60*1000)return {status:'cooldown'};
+  const createdAt=Date.parse(last.timeCreated||'');
+  const age=Date.now()-createdAt;
+  // Missing/invalid/future timestamps must never authorize a new Apply.
+  if(!Number.isFinite(createdAt)||createdAt<=0||!Number.isFinite(age)||age<25*60*1000)return {status:'cooldown'};
   if(!isOcid(last.id,'ormjob'))return {status:'invalid_last_job'};
   const log=await request(env,'GET','/20180917/jobs/'+encodeURIComponent(last.id)+'/logs/content');
   if(!log.ok||typeof log.data!=='string')return {status:'logs_unavailable',http:log.status};
@@ -83,7 +92,7 @@ async function run(env){
   const plan=await request(env,'GET','/20180917/jobs/'+encodeURIComponent(trim(env.OCI_PLAN_JOB_OCID)));
   if(!plan.ok||plan.data?.operation!=='PLAN'||plan.data?.lifecycleState!=='SUCCEEDED'||plan.data?.stackId!==trim(env.OCI_STACK_OCID))return {status:'plan_not_valid'};
   const details={stackId:trim(env.OCI_STACK_OCID),displayName:'Bob A1 capacity retry',jobOperationDetails:{operation:'APPLY',executionPlanStrategy:'FROM_PLAN_JOB_ID',executionPlanJobId:trim(env.OCI_PLAN_JOB_OCID)}};
-  const created=await request(env,'POST','/20180917/jobs',details,{'opc-retry-token':crypto.randomUUID()});
+  const created=await request(env,'POST','/20180917/jobs',details,{'opc-retry-token':await retryToken(last.id,trim(env.OCI_PLAN_JOB_OCID))});
   if(!created.ok)return {status:'apply_rejected',http:created.status};
   return {status:'apply_submitted',jobId:created.data?.id||null};
 }
@@ -91,4 +100,4 @@ export default {
   async fetch(){return new Response('Not found',{status:404});},
   async scheduled(event,env,ctx){ctx.waitUntil(run(env).then(x=>console.log('bob_oracle_a1',JSON.stringify(x))).catch(()=>console.error('bob_oracle_a1','request_or_key_failed')));}
 };
-export {validate,run};
+export {validate,run,retryToken};
