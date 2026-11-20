@@ -24,6 +24,9 @@ class PhoneDiagnosticPolicyTest {
     @Test fun localResearchHeartbeatNeverContainsProductIdentity() {
         assertEquals("LOCAL_RESEARCH_ACTIVE",
             PhoneDiagnosticPolicy.code("LOCAL_RESEARCH_ACTIVE"))
+        assertEquals("LOCAL_RESEARCH_START_BLOCKED",
+            PhoneDiagnosticPolicy.code("LOCAL_RESEARCH_START_BLOCKED"))
+        assertFalse(MorningReadUiPolicy.reason("LOCAL_RESEARCH_START_BLOCKED").isBlank())
         assertFalse(MorningReadUiPolicy.reason("LOCAL_RESEARCH_ACTIVE").isBlank())
         assertEquals("OTHER",PhoneDiagnosticPolicy.code(
             "LOCAL_RESEARCH_ACTIVE DE000FD0S0G4 Geld 42 CHF"))
