@@ -4,6 +4,44 @@ const HOST='resourcemanager.eu-zurich-1.oraclecloud.com';
 const ROOT='https://'+HOST;
 const CAPACITY=/out.of.host.capacity|outofhostcapacity|no.capacity.for.shape|shape.*capacity.*not.available|capacity.*not.available/i;
 const ACTIVE=new Set(['ACCEPTED','IN_PROGRESS','CANCELING','WAITING']);
+const REVIEWED_IMAGE='ocid1.image.oc1.eu-zurich-1.aaaaaaaadk22jaklt42vd4entg5pfsn5jfwbakrs7nsrawqvv5ya7iefhgiq';
+const single=x=>Array.isArray(x)&&x.length===1?x[0]:null;
+// A pre-existing successful network Apply does not certify a safe VM plan.
+// The only permitted change is creating the previously reviewed private A1.
+function verifyPlan(plan,state){
+  if(!plan||!Array.isArray(plan.resource_changes)||!state||!Array.isArray(state.resources))return false;
+  const find=(type,name)=>{
+    const r=state.resources.filter(x=>x.mode==='managed'&&x.type===type&&x.name===name);
+    return r.length===1?single(r[0].instances)?.attributes:null;
+  };
+  const vcn=find('oci_core_vcn','bob');
+  const subnet=find('oci_core_subnet','test');
+  const acl=find('oci_core_security_list','isolated');
+  if(!vcn||!subnet||!acl||subnet.prohibit_public_ip_on_vnic!==true||
+     subnet.vcn_id!==vcn.id||acl.vcn_id!==vcn.id||subnet.compartment_id!==vcn.compartment_id||
+     !Array.isArray(acl.ingress_security_rules)||acl.ingress_security_rules.length!==0||
+     !Array.isArray(acl.egress_security_rules)||acl.egress_security_rules.length!==0)return false;
+  const altered=plan.resource_changes.filter(r=>{
+    const a=r?.change?.actions;
+    return !(Array.isArray(a)&&a.length===1&&(a[0]==='no-op'||a[0]==='read'));
+  });
+  if(altered.length!==1)return false;
+  const r=altered[0];
+  if(r.address!=='oci_core_instance.bob'||r.mode!=='managed'||r.type!=='oci_core_instance'||
+     JSON.stringify(r.change?.actions)!=='["create"]')return false;
+  const a=r.change?.after;
+  if(!a||a.display_name!=='bob-ocr-zurich'||a.compartment_id!==subnet.compartment_id||
+     typeof a.availability_domain!=='string'||
+     !a.availability_domain.toUpperCase().endsWith(':EU-ZURICH-1-AD-1')||
+     a.shape!=='VM.Standard.A1.Flex')return false;
+  const shape=single(a.shape_config),src=single(a.source_details),nic=single(a.create_vnic_details),opts=single(a.instance_options);
+  return Boolean(shape&&src&&nic&&opts&&Number(shape.ocpus)===1&&Number(shape.memory_in_gbs)===4&&
+    src.source_type==='image'&&src.source_id===REVIEWED_IMAGE&&
+    Number(src.boot_volume_size_in_gbs)===50&&Number(src.boot_volume_vpus_per_gb)===10&&
+    nic.subnet_id===subnet.id&&nic.assign_public_ip===false&&
+    opts.are_legacy_imds_endpoints_disabled===true);
+}
+
 const trim=x=>typeof x==='string'?x.trim():'';
 function isOcid(v,t){return new RegExp('^ocid1\\.'+t+'\\.oc1[.a-z0-9_-]*$','i').test(trim(v));}
 function validate(e){
@@ -103,6 +141,14 @@ async function run(env){
   if(!CAPACITY.test(log.data.slice(-150000)))return {status:'not_a_capacity_failure'};
   const plan=await request(env,'GET','/20180917/jobs/'+encodeURIComponent(trim(env.OCI_PLAN_JOB_OCID)));
   if(!plan.ok||plan.data?.operation!=='PLAN'||plan.data?.lifecycleState!=='SUCCEEDED'||plan.data?.stackId!==trim(env.OCI_STACK_OCID))return {status:'plan_not_valid'};
+  // Oracle returns a downloadable Terraform JSON plan stream. Never trust a
+  // completed PLAN status alone, especially if it predates network creation.
+  const planFile=await request(env,'GET','/20180917/jobs/'+encodeURIComponent(trim(env.OCI_PLAN_JOB_OCID))+'/tfPlan?tfPlanFormat=JSON');
+  if(!planFile.ok)return {status:'plan_content_unavailable',http:planFile.status};
+  let content=planFile.data;
+  try{if(typeof content==='string')content=JSON.parse(content);}
+  catch{return {status:'plan_content_invalid'};}
+  if(!verifyPlan(content,tfState))return {status:'plan_not_allowlisted'};
   const details={stackId:trim(env.OCI_STACK_OCID),displayName:'Bob A1 capacity retry',jobOperationDetails:{operation:'APPLY',executionPlanStrategy:'FROM_PLAN_JOB_ID',executionPlanJobId:trim(env.OCI_PLAN_JOB_OCID)}};
   const created=await request(env,'POST','/20180917/jobs',details,{'opc-retry-token':await retryToken(last.id,trim(env.OCI_PLAN_JOB_OCID))});
   if(!created.ok)return {status:'apply_rejected',http:created.status};
@@ -112,4 +158,4 @@ export default {
   async fetch(){return new Response('Not found',{status:404});},
   async scheduled(event,env,ctx){ctx.waitUntil(run(env).then(x=>console.log('bob_oracle_a1',JSON.stringify(x))).catch(()=>console.error('bob_oracle_a1','request_or_key_failed')));}
 };
-export {validate,run,retryToken};
+export {validate,run,retryToken,verifyPlan};
