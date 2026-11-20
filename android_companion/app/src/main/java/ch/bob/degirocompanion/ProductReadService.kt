@@ -32,6 +32,8 @@ class ProductReadService : AccessibilityService() {
     private var searchTapAttempted = false
     private var resultTapAttempted = false
     private var inputTapAttempted = false
+    private var inputClickAttempted = false
+    private var inputFocusAttempted = false
     private var nativeBackSteps = 0
     private var categorySteps = 0
     /** Scope-only extension for the explicitly started full Gold list. All
@@ -483,6 +485,8 @@ class ProductReadService : AccessibilityService() {
             clearWrittenSearch()
             searchTapAttempted = false
             inputTapAttempted = false
+            inputClickAttempted = false
+            inputFocusAttempted = false
             resultTapAttempted = false
             nativeBackSteps = 0
             categorySteps = 0
@@ -1431,7 +1435,9 @@ class ProductReadService : AccessibilityService() {
             val action=if(remoteQuery != null) {
                 if(remoteQuery == "Gold") MorningReadPolicy.discoverGold(descriptions)
                 else MorningReadPolicy.ownerProductDecision(descriptions,remoteQuery,keyboardVisible())
-            } else if(MorningReadRun.running) MorningReadPolicy.detailDecision(descriptions,MorningReadRun.target,MorningReadRun.importedListRun(),keyboardVisible())
+            } else if(MorningReadRun.researchOnlyActive()) MorningReadPolicy.localResearchDecision(
+                descriptions,MorningReadRun.target,keyboardVisible(),resultOpened=batchResultOpened)
+                else if(MorningReadRun.running) MorningReadPolicy.detailDecision(descriptions,MorningReadRun.target,MorningReadRun.importedListRun(),keyboardVisible())
                 else if(GoldSearchRun.openingProduct) MorningReadPolicy.ownerProductDecision(descriptions,GoldSearchRun.query,keyboardVisible())
                 else if(GoldSearchRun.running && GoldSearchRun.searchOnlyQuery != null) MorningReadPolicy.searchLeveraged(descriptions,GoldSearchRun.query)
                 else MorningReadPolicy.discoverGold(descriptions)
@@ -1889,12 +1895,38 @@ class ProductReadService : AccessibilityService() {
         if(capturedWindow!=null) handler.postDelayed({ returnToSearchWhileImporting(capturedWindow,captured,0) },650)
     }
 
-    private fun focusSearch(node: AccessibilityNodeInfo): Boolean =
-        node.isEditable && node.isEnabled && !node.isPassword &&
-            node.actionList.any { it.id==AccessibilityNodeInfo.ACTION_FOCUS } &&
-            node.performAction(AccessibilityNodeInfo.ACTION_FOCUS).also { accepted ->
-                ProductReadDiagnostics.record(if(accepted) ProductReadDiagnostics.Outcome.SEARCH_FOCUS_ACCEPTED else ProductReadDiagnostics.Outcome.SEARCH_FOCUS_REJECTED)
-            }
+    /** A focused Samsung WebView EditText does NOT necessarily bring up the
+     * keyboard. The initial, window-verified search-input gesture remains the
+     * first attempt. If the IME is still absent, make ONE semantic ACTION_CLICK
+     * on that SAME uniquely classified product-search input, then at most ONE
+     * ACTION_FOCUS fallback. Never click a wrapper, another field or a K/V
+     * control. The policy must re-verify keyboard visibility before QUERY. */
+    private fun focusSearch(node: AccessibilityNodeInfo): Boolean {
+        if(!node.isEditable || !node.isVisibleToUser || !node.isEnabled ||
+            node.isPassword || !MorningReadPolicy.isSearchInput(
+                node.viewIdResourceName.orEmpty(),
+                node.contentDescription?.toString().orEmpty(),
+                node.hintText?.toString().orEmpty())) return false
+        if(!inputClickAttempted &&
+            node.actionList.any { it.id==AccessibilityNodeInfo.ACTION_CLICK }) {
+            inputClickAttempted=true
+            val ok=node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            ProductReadDiagnostics.record(if(ok)
+                ProductReadDiagnostics.Outcome.SEARCH_INPUT_CLICK_SENT
+                else ProductReadDiagnostics.Outcome.SEARCH_INPUT_CLICK_REJECTED)
+            return ok
+        }
+        if(!inputFocusAttempted &&
+            node.actionList.any { it.id==AccessibilityNodeInfo.ACTION_FOCUS }) {
+            inputFocusAttempted=true
+            val accepted=node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+            ProductReadDiagnostics.record(if(accepted)
+                ProductReadDiagnostics.Outcome.SEARCH_FOCUS_ACCEPTED
+                else ProductReadDiagnostics.Outcome.SEARCH_FOCUS_REJECTED)
+            return accepted
+        }
+        return false
+    }
 
     private fun submitSearch(node: AccessibilityNodeInfo): Boolean =
         android.os.Build.VERSION.SDK_INT>=30 && node.isEditable && node.isFocused &&
@@ -2004,6 +2036,8 @@ class ProductReadService : AccessibilityService() {
                         clearWrittenSearch()
                         searchTapAttempted=false
                         inputTapAttempted=false
+                        inputClickAttempted=false
+                        inputFocusAttempted=false
                         categorySteps=0
                         lastNavigationIssue=""
                         lastNavigation=listGenericTurboBackAt

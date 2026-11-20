@@ -214,6 +214,16 @@ class MorningReadPolicyTest {
             MorningReadPolicy.detailDecision(listOf(input.copy(text=first,
                 focused=true),selected),next,false,
                 keyboardReady=true,resultOpened=false).kind)
+        // The research-only route must keep the keyboard gate for EVERY
+        // following ISIN, rather than reusing a hidden Samsung IME.
+        assertEquals(MorningReadPolicy.Kind.FOCUS,
+            MorningReadPolicy.localResearchDecision(
+                listOf(input.copy(text=first,focused=true),selected),
+                next,keyboardReady=false,resultOpened=false).kind)
+        assertEquals(MorningReadPolicy.Kind.QUERY,
+            MorningReadPolicy.localResearchDecision(
+                listOf(input.copy(text=first,focused=true),selected),
+                next,keyboardReady=true,resultOpened=false).kind)
         assertEquals(MorningReadPolicy.Kind.BLOCK,
             MorningReadPolicy.detailDecision(listOf(input,selected,
                 MorningReadPolicy.Node("Order bestätigen")),first,false).kind)

@@ -111,7 +111,10 @@ class AndroidStableReleaseTests(unittest.TestCase):
         # The extra action only scrolls the verified ten-row DEGIRO result list
         # back to its search header while private OCR is pending. Count changes
         # must be accompanied by explicit source/safety-contract verification.
-        self.assertEqual(service.count('performAction('), 11)
+        # One more guarded action is the single Samsung search-EditText
+        # click fallback after a validated search-input gesture. The strict
+        # field identity and one-shot budget are checked below.
+        self.assertEqual(service.count('performAction('), 12)
         return_scroll = service.split('private fun returnToSearchWhileImporting(', 1)[1].split(
             'private fun deliverMorningList(', 1)[0]
         for guard in [
@@ -143,7 +146,22 @@ class AndroidStableReleaseTests(unittest.TestCase):
         self.assertIn('if(category) MorningReadPolicy.Kind.CATEGORY', tap)
         self.assertIn('action.kind!=required || (input && category)', tap)
         self.assertIn('target.isEditable!=input', tap)
+        self.assertIn('else if(MorningReadRun.researchOnlyActive()) MorningReadPolicy.localResearchDecision(', tap)
+        self.assertIn('descriptions,MorningReadRun.target,keyboardVisible(),resultOpened=batchResultOpened)', tap)
         self.assertIn('tapRecognizedSearch(root.windowId,category=true)', service)
+        # When Samsung focus alone leaves the IME closed, use only one
+        # additional semantic ACTION_CLICK on the exact verified product
+        # EditText. Never click an unrecognized field or trade control.
+        self.assertIn('inputClickAttempted=false', service)
+        self.assertIn('inputClickAttempted=true', service)
+        self.assertIn('inputFocusAttempted=true', service)
+        self.assertIn('!node.isVisibleToUser', service)
+        self.assertIn('MorningReadPolicy.isSearchInput(', service)
+        self.assertIn('node.actionList.any { it.id==AccessibilityNodeInfo.ACTION_CLICK }', service)
+        self.assertIn('node.performAction(AccessibilityNodeInfo.ACTION_CLICK)', service)
+        self.assertIn('SEARCH_INPUT_CLICK_SENT', service)
+        self.assertIn('SEARCH_INPUT_CLICK_REJECTED', service)
+        self.assertIn('keyboardVisible(),resultOpened=batchResultOpened', service)
         # Samsung Gold search may need more than four bounded category-scroll
         # actions with the keyboard previously open. Never permit a free
         # gesture or unbounded retries; all tabs remain semantically verified.
