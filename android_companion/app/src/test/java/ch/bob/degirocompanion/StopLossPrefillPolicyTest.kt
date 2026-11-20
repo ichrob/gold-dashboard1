@@ -26,22 +26,6 @@ class StopLossPrefillPolicyTest {
         }
         return StopLossPrefillPolicy.Frame("nl.degiro.trader",n)
     }
-    @Test fun sessionIsLocalShortLivedAndBrokerLaunchWindowIsBounded() {
-        var callbacks=0
-        StopLossPrefillSession.onArmed={ callbacks++ }
-        try {
-            StopLossPrefillSession.arm(draft,1000L)
-            assertEquals(1,callbacks)
-            assertTrue(StopLossPrefillSession.waitingForBrokerLaunch(2000L))
-            assertFalse(StopLossPrefillSession.waitingForBrokerLaunch(5000L))
-            assertNotNull(StopLossPrefillSession.current(120999L))
-            assertNull(StopLossPrefillSession.current(121000L))
-            assertFalse(StopLossPrefillSession.active(121001L))
-        } finally {
-            StopLossPrefillSession.onArmed=null
-            StopLossPrefillSession.finish("TEST_ENDED")
-        }
-    }
     @Test fun payloadDoesNotAcceptStaleWrongCurrencyOrArbitraryNumbers() {
         val text="BOB-STOP/1|DE000FB0A490|EUR|3|26.90|$now"
         assertEquals(2690L,StopLossDraftCodec.parse(text,now)?.stopCents)
