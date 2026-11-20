@@ -104,6 +104,8 @@ def main(stack):
         print('RESULT=INVALID_ZURICH_STACK_ID')
         return 2
     print('MODE=READ_ONLY')
+    print('AUTOMATIC_APPLY_ALLOWED=NO')
+    print('ACCOUNT_ALWAYS_FREE=UNVERIFIED')
     print('REGION=' + REGION)
     try:
         stack_data = parse_json(call('resource-manager', 'stack', 'get', '--stack-id', stack))['data']
@@ -162,8 +164,6 @@ def main(stack):
             (live_status in ('ONE_RUNNING', 'ONE_STOPPED', 'ONE_OTHER_STATE', 'MULTIPLE')
              and state_status == 'ABSENT') or
             (live_status == 'ABSENT' and state_status == 'PRESENT')).lower())
-        if live_status == 'UNAVAILABLE' or state_status in ('UNAVAILABLE', 'INVALID'):
-            print('AUTOMATIC_APPLY_ALLOWED=NO')
         raw_jobs = parse_json(call('resource-manager', 'job', 'list', '--stack-id', stack, '--all'))
         jobs = raw_jobs.get('data', [])
         if not isinstance(jobs, list):
