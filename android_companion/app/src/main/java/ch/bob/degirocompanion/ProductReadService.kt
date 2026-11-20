@@ -366,7 +366,7 @@ class ProductReadService : AccessibilityService() {
                 !ProductReadRequest.active(SystemClock.elapsedRealtime())) {
                 "Lokale ISIN-Recherche benötigt die bestehende entsperrte Lesesitzung"
             }
-            check(local.size in 9..10 && local.distinct()==local &&
+            check(local.size in 1..10 && local.distinct()==local &&
                 local.all(SeriesEvidence::validIsin))
             val root=productRoot(false) ?: error("DEGIRO-Suchseite nicht erreichbar")
             val refs=mutableListOf<AccessibilityNodeInfo>()
