@@ -619,9 +619,11 @@ internal object MorningReadPolicy {
             "PROTECTED_ORDER_CONFIRM" -> if(productSearchWithoutLauncher(nodes)==null) return null
             else -> return null
         }
-        val context=nodes.any { normalized(it.text).equals("Top Ergebnisse",true) } ||
-            nodes.any { normalized(it.text).equals("Alle Ergebnisse in Hebelprodukte",true) } ||
-            nodes.count { normalized(it.text).equals("Hebelprodukte",true) && it.selected }==1
+        val leverage=nodes.filter { normalized(it.text).equals("Hebelprodukte",true) }
+        if(leverage.size!=1)return null
+        val context=leverage.single().selected ||
+            nodes.any { normalized(it.text).equals("Top Ergebnisse",true) } ||
+            nodes.any { normalized(it.text).equals("Alle Ergebnisse in Hebelprodukte",true) }
         if(!context)return null
         val fields=nodes.indices.filter { nodes[it].editable }
         val index=fields.singleOrNull() ?: return null
