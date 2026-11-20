@@ -94,7 +94,7 @@ def _safe(item, market, cash):
 def _choices(selection, quotes, market, now, arm, policy):
     import stop_target_audit
     if (not isinstance(selection, dict)
-            or market.get("entryTimingGate", {}).get("allowed") is not True
+            or (market.get("entryTimingGate") or {}).get("allowed") is not True
             or market.get("ready") is not True
             or market.get("priceFresh") is not True
             or market.get("direction") not in ("LONG", "SHORT")
