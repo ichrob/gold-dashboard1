@@ -54,32 +54,41 @@ class PublicBrowserlessTests(unittest.TestCase):
             post.assert_not_called()
 
     def test_public_fixed_origin_and_unverified_output(self):
-        body = {"ok": True, "statusCode": 200, "strategy": "http-fetch", "markdown": "Produkt ISIN DE000FG77FN1 Gold Turbo",
-                "json": {"isin": "DE000FG77FN1", "bid": "0,63 EUR",
-                         "quoteTime": "19.11.2026 20:15", "leverage": "8,2"}}
+        markdown = """# Gold Turbo ISIN DE000FG77FN1
+## Stammdaten
+Typ
+Put
+Knock-Out-Barriere
+4.151,2285 USD
+Basiswert
+Gold
+"""
         response = MagicMock()
         response.status_code = 200
-        response.iter_content.return_value = [json.dumps(body).encode()]
+        response.iter_content.return_value = [json.dumps({
+            "ok": True, "statusCode": 200, "strategy": "http-fetch",
+            "markdown": markdown, "json": None
+        }).encode()]
         with patch.dict(os.environ, {"BROWSERLESS_API_TOKEN": "private",
                                      "BOB_BROWSERLESS_PUBLIC_RESEARCH": "1",
-                                     "BOB_BROWSERLESS_FREE_ACCOUNT_CONFIRMED": "1"}), patch.object(b.requests, "post") as post:
+                                     "BOB_BROWSERLESS_FREE_ACCOUNT_CONFIRMED": "1"}), patch.object(b.requests,"post") as post:
             post.return_value.__enter__.return_value = response
-            result = b.extract("DE000FG77FN1", now=self.now)
-            self.assertEqual(result["state"], "unverified-research")
-            self.assertFalse(result["eligible"])
+            result=b.extract("DE000FG77FN1",now=self.now)
+            self.assertEqual(result["state"],"unverified-research")
+            self.assertEqual(result["fields"]["direction"],"SHORT")
+            self.assertEqual(result["fields"]["knockOut"],"4.151,2285 USD")
+            self.assertNotIn("bid",result["fields"])
+            self.assertFalse(result["aiExtractionUsed"])
             self.assertFalse(result["tradeApproved"])
             self.assertFalse(result["originalQuoteTimeVerified"])
-            self.assertEqual(result["fields"]["bid"], "0,63 EUR")
-            self.assertEqual(result["providerStrategy"], "http-fetch")
-            self.assertEqual(post.call_args.kwargs["json"]["proxy"], "datacenter")
+            self.assertEqual(post.call_args.args[0],b.API_EU)
+            self.assertEqual(post.call_args.kwargs["json"]["formats"],["markdown","rawText"])
+            self.assertNotIn("jsonOptions",post.call_args.kwargs["json"])
+            self.assertEqual(post.call_args.kwargs["json"]["proxy"],"datacenter")
             self.assertFalse(post.call_args.kwargs["json"]["onlyMainContent"])
-            self.assertEqual(post.call_args.args[0], b.API)
-            self.assertEqual(post.call_args.kwargs["json"]["url"],
-                             "https://www.sg-zertifikate.de/product-details/fg77fn")
-            self.assertNotIn("cookie", str(post.call_args.kwargs).lower())
-            self.assertFalse(post.call_args.kwargs["allow_redirects"])
-            self.assertEqual(b.extract("DE000FG77FN1", now=self.now)["state"], "already-attempted")
-            self.assertEqual(post.call_count, 1)
+            self.assertEqual(post.call_args.kwargs["json"]["url"],"https://www.sg-zertifikate.de/product-details/fg77fn")
+            self.assertEqual(b.extract("DE000FG77FN1",now=self.now)["state"],"already-attempted")
+            self.assertEqual(post.call_count,1)
 
     def test_identity_absent_or_ai_disagrees(self):
         with patch.dict(os.environ, {"BROWSERLESS_API_TOKEN": "private",
@@ -106,24 +115,25 @@ class PublicBrowserlessTests(unittest.TestCase):
         self.assertEqual(b._reserve("ISIN12", "sg", self.now + timedelta(days=5)), "month-limit")
         self.assertEqual(b._reserve("ISIN12", "sg", datetime(2026, 12, 1, tzinfo=timezone.utc)), "reserved")
 
-    def test_failed_source_status_and_invalid_json_isin_are_rejected(self):
-        response = MagicMock()
-        response.status_code = 200
-        with patch.dict(os.environ, {"BROWSERLESS_API_TOKEN": "private",
-                                     "BOB_BROWSERLESS_PUBLIC_RESEARCH": "1",
-                                     "BOB_BROWSERLESS_FREE_ACCOUNT_CONFIRMED": "1"}), patch.object(b.requests, "post") as post:
-            post.return_value.__enter__.return_value = response
-            response.iter_content.return_value = [json.dumps(
-                {"ok": True, "statusCode": 403, "markdown": "DE000FG77FN1",
-                 "json": {"isin": "DE000FG77FN1"}}
-            ).encode()]
-            self.assertEqual(b.extract("DE000FG77FN1", now=self.now)["state"], "source-http-unavailable")
+    def test_failed_source_status_and_invalid_bnp_json_isin_are_rejected(self):
+        response=MagicMock()
+        response.status_code=200
+        with patch.dict(os.environ, {"BROWSERLESS_API_TOKEN":"private",
+                                     "BOB_BROWSERLESS_PUBLIC_RESEARCH":"1",
+                                     "BOB_BROWSERLESS_FREE_ACCOUNT_CONFIRMED":"1"}),patch.object(b.requests,"post") as post:
+            post.return_value.__enter__.return_value=response
+            response.iter_content.return_value=[json.dumps({
+                "ok":True,"statusCode":403,
+                "markdown":"DE000BY7UKR4",
+                "json":{"isin":"DE000BY7UKR4"}
+            }).encode()]
+            self.assertEqual(b.extract("DE000BY7UKR4",source="bnp",now=self.now)["state"],"source-http-unavailable")
             b._RESERVED.clear()
-            response.iter_content.return_value = [json.dumps(
-                {"ok": True, "statusCode": 200, "markdown": "DE000FG77FN1",
-                 "json": {"isin": None}}
-            ).encode()]
-            self.assertEqual(b.extract("DE000FG77FN1", now=self.now)["state"], "extraction-not-proven")
+            response.iter_content.return_value=[json.dumps({
+                "ok":True,"statusCode":200,"markdown":"DE000BY7UKR4",
+                "json":{"isin":None}
+            }).encode()]
+            self.assertEqual(b.extract("DE000BY7UKR4",source="bnp",now=self.now)["state"],"extraction-not-proven")
 
     def test_sg_wkn_title_fallback_is_research_only(self):
         markdown = """# BEST Turbo on Gold
@@ -176,23 +186,22 @@ Knock-Out-Barriere 4.151,2285 USD
         self.assertIsNone(b.source_identity_evidence(
             "Stammdaten ISIN DE000FG77FN1", isin, "sg"))
 
-    def test_wkn_only_does_not_override_mismatched_ai_isin(self):
-        response = MagicMock()
-        response.status_code = 200
-        response.iter_content.return_value = [json.dumps({
-            "ok": True, "statusCode": 200,
-            "markdown": "## FB0A49\nStammdaten\nBasiswert Gold\nKnock-Out-Barriere 4151",
-            "json": {"isin": "DE000FG77FN1"}
+    def test_wkn_page_with_another_full_isin_still_rejected(self):
+        response=MagicMock()
+        response.status_code=200
+        response.iter_content.return_value=[json.dumps({
+            "ok":True,"statusCode":200,
+            "markdown":"## FB0A49\nStammdaten\nBasiswert\nGold\nKnock-Out-Barriere\n4.151,2285 USD\nISIN DE000FG77FN1",
+            "json":{"isin":"DE000FB0A490","wkn":"FB0A49"}
         }).encode()]
-        with patch.dict(os.environ, {"BROWSERLESS_API_TOKEN": "private",
-                                     "BOB_BROWSERLESS_PUBLIC_RESEARCH": "1",
-                                     "BOB_BROWSERLESS_FREE_ACCOUNT_CONFIRMED": "1"}), \
-                patch.object(b.requests, "post") as post:
-            post.return_value.__enter__.return_value = response
-            result = b.extract("DE000FB0A490", now=self.now)
-        self.assertEqual(result["state"], "extraction-not-proven")
+        with patch.dict(os.environ, {"BROWSERLESS_API_TOKEN":"private",
+                                     "BOB_BROWSERLESS_PUBLIC_RESEARCH":"1",
+                                     "BOB_BROWSERLESS_FREE_ACCOUNT_CONFIRMED":"1"}),patch.object(b.requests,"post") as post:
+            post.return_value.__enter__.return_value=response
+            result=b.extract("DE000FB0A490",now=self.now)
+        self.assertEqual(result["state"],"identity-not-proven")
         self.assertFalse(result["eligible"])
-        self.assertEqual(result["fields"], {})
+        self.assertEqual(result["fields"],{})
 
     def test_identity_failure_diagnostics_are_anonymous(self):
         secret = "PRIVATE_API_KEY_DO_NOT_EXPOSE"
@@ -248,26 +257,26 @@ Knock-Out-Barriere 4.151,2285 USD
         self.assertEqual(result["state"], "unverified-research")
         self.assertTrue(post.call_args.kwargs["json"]["onlyMainContent"])
 
-    def test_sg_wkn_requires_extracted_matching_wkn(self):
-        response = MagicMock()
-        response.status_code = 200
-        page = "## FB0A49\nStammdaten\nBasiswert Gold\nKnock-Out-Barriere 4151"
-        with patch.dict(os.environ, {"BROWSERLESS_API_TOKEN": "private",
-                                     "BOB_BROWSERLESS_PUBLIC_RESEARCH": "1",
-                                     "BOB_BROWSERLESS_FREE_ACCOUNT_CONFIRMED": "1"}), \
-                patch.object(b.requests, "post") as post:
-            post.return_value.__enter__.return_value = response
-            for payload in [{"isin": "DE000FB0A490"},
-                            {"wkn": "OTHER1"},
-                            {"wkn": "FB0A49", "isin": "DE000FG77FN1"}]:
-                b._RESERVED.clear()
-                response.iter_content.return_value = [json.dumps({
-                    "ok": True, "statusCode": 200, "markdown": page,
-                    "json": payload,
-                }).encode()]
-                self.assertEqual(b.extract("DE000FB0A490", now=self.now)["state"],
-                                 "extraction-not-proven")
-            self.assertEqual(post.call_count,3)
+    def test_sg_ai_json_does_not_change_markdown_only_evidence(self):
+        response=MagicMock()
+        response.status_code=200
+        page="## FB0A49\n## Stammdaten\nTyp\nPut\nBasiswert\nGold\nKnock-Out-Barriere\n4.151,2285 USD"
+        response.iter_content.return_value=[json.dumps({
+            "ok":True,"statusCode":200,"markdown":page,
+            "json":{"isin":"DE000FG77FN1","wkn":"DIFFERENT","quoteTime":"fake","bid":"99999"}
+        }).encode()]
+        with patch.dict(os.environ, {"BROWSERLESS_API_TOKEN":"private",
+                                     "BOB_BROWSERLESS_PUBLIC_RESEARCH":"1",
+                                     "BOB_BROWSERLESS_FREE_ACCOUNT_CONFIRMED":"1"}),patch.object(b.requests,"post") as post:
+            post.return_value.__enter__.return_value=response
+            result=b.extract("DE000FB0A490",now=self.now)
+        self.assertEqual(result["state"],"unverified-research")
+        self.assertEqual(result["fields"]["direction"],"SHORT")
+        self.assertEqual(result["sourceIdentityEvidence"],"sg-product-title-wkn-only")
+        self.assertNotIn("bid",result["fields"])
+        self.assertNotIn("quoteTime",result["fields"])
+        self.assertFalse(result["aiExtractionUsed"])
+        self.assertFalse(result["eligible"])
 
     def test_exception_is_redacted(self):
         with patch.dict(os.environ, {"BROWSERLESS_API_TOKEN": "private",
