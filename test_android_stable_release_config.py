@@ -148,9 +148,16 @@ class AndroidStableReleaseTests(unittest.TestCase):
         # A 9/10 server rejection activates only local read-only research,
         # with one owner session ticket and eight bounded rechecks of the
         # protected DEGIRO search field. No UI action on an unverified screen.
-        self.assertIn('continueLocalGoldResearch(local.toList(),ticket,0)', service)
+        self.assertIn('continueLocalGoldResearch(local.toList(),ticket,0,', service)
         self.assertIn('PhoneRemote.sessionId()!=ticket', service)
-        self.assertIn('handler.postDelayed({ continueLocalGoldResearch(local,ticket,attempt+1) },500)', service)
+        self.assertIn('continueLocalGoldResearch(local,ticket,attempt+1,startedAt)', service)
+        self.assertIn('continueLocalGoldResearch(local,ticket,attempt,startedAt)', service)
+        self.assertIn('LocalResearchForegroundPolicy.mayWait(elapsed,', service)
+        self.assertIn('LocalResearchForegroundPolicy.POLL_MS', service)
+        self.assertIn('PhoneDiagnostics.queue(this)', service)
+        self.assertIn('LOCAL_RESEARCH_AWAITING_DEGIRO', service)
+        self.assertIn('LOCAL_RESEARCH_DEGIRO_RETURNED', service)
+        self.assertIn('LOCAL_RESEARCH_DEGIRO_NOT_VISIBLE', service)
         self.assertIn('LOCAL_RESEARCH_SEARCH_UNAVAILABLE', service)
         self.assertIn('MorningReadPolicy.postCaptureGoldSearchFocusIndex(', service)
 
