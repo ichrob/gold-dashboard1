@@ -221,10 +221,10 @@ internal object MorningListDelivery {
                         response?.optString("batchId")==batch &&
                         (attempt>=6 || resumeSavedCapture) &&
                         PhoneRemote.active() && PhoneRemote.sessionId()==session) {
-                        val earlier=response.optString("existingListBatchId").orEmpty()
-                        val ids=response.optJSONArray("existingDetailIsins")
+                        val earlier=response?.optString("existingListBatchId").orEmpty()
+                        val ids=response?.optJSONArray("existingDetailIsins")
                         val values=if(ids==null) null else (0 until ids.length()).map { ids.optString(it) }
-                        val plan=values?.let { SelectiveDetailPlan.parse(response.optJSONArray("existingDetailPlan"),it) }
+                        val plan=values?.let { SelectiveDetailPlan.parse(response?.optJSONArray("existingDetailPlan"),it) }
                         val verifiedEarlier=MorningListFallbackPolicy.allowed(18,batch,earlier,plan)
                         val raw=body.optJSONArray("localCandidates")
                         val observed=if(raw==null) emptyList() else
@@ -233,7 +233,7 @@ internal object MorningListDelivery {
                                 attempt,receipt?.optString("stage"),receipt?.optString("error"),
                                 hasVerifiedEarlier=verifiedEarlier)) {
                             ProvisionalIsinReadPolicy.memoryCandidates(
-                                observed,batch,response.optString("batchId"),
+                                observed,batch,response?.optString("batchId").orEmpty(),
                                 receipt?.optString("stage").orEmpty(),
                                 receipt?.optString("error").orEmpty(),
                                 body.optJSONArray("images")?.length() ?: 0,
