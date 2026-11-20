@@ -47,11 +47,14 @@ keine automatische Tradeausführung, keine Order.
   die angefragte gültige vollständige ISIN enthalten. Der Seitentext muss
   entweder dieselbe vollständige ISIN zeigen oder (NUR bei SG) zusätzlich zu
   einer exakt passenden WKN-Überschrift im ersten Produktseitenabschnitt die
-  typischen Stammdaten / Basiswert / Knock-Out-Felder enthalten. Jede andere
-  vollständige ISIN im reinen WKN-Fallback führt zur Ablehnung. Eine allgemeine
-  Trefferliste, Seitenleiste oder bloße Erwähnung der WKN genügt nicht.
+  typischen Stammdaten / Basiswert / Knock-Out-Felder enthalten. Im SG-WKN-Modus
+  darf die KI die ISIN auslassen und muss die sichtbare WKN exakt auslesen;
+  eine abweichende KI-ISIN sperrt immer. Die fehlende ISIN wird niemals
+  vom Modell als Originalbeleg nacherfunden. Jede andere vollständige ISIN
+  im reinen WKN-Fallback führt zur Ablehnung. Eine allgemeine Trefferliste,
+  Seitenleiste oder bloße Erwähnung der WKN genügt nicht.
   Dieses Ergebnis trägt sourceIdentityEvidence und ggf.
-  sourceIdentityLimited=true. Auch bei Übereinstimmung sind KI-Kurse
+  sourceIdentityLimited=true sowie sourceIsinObserved=false. Auch bei Übereinstimmung sind KI-Kurse
   ausdrücklich NICHT durch Originalquelle/Handelsplatz bestätigt.
   Mögliche Hinweise: Richtung, KO, Geld/Brief, Hebel,
   Status, Basiswert und auf der Seite angezeigte Kurs-/Hebelzeiten.
