@@ -170,6 +170,29 @@ def extract(isin, source="sg", *, now=None):
 # The control always requires an intentional click and Bob's existing login.
 # The returned AI strings are shown as text, never injected as HTML.
 PANEL = r"""
+<style>
+/* The Browserless research panel is server-inserted after </main>. Mobile
+   main padding cannot protect it from the fixed .bob-nav at the viewport foot. */
+#bobBrowserlessMobileClearance{display:none}
+@media(max-width:820px){
+ #bobBrowserlessMobileClearance{
+  display:block;
+  height:calc(132px + env(safe-area-inset-bottom, 0px));
+  pointer-events:none;
+ }
+ #bobBrowserlessPublic{
+  box-sizing:border-box;
+  width:calc(100% - 24px);
+  scroll-margin-bottom:calc(132px + env(safe-area-inset-bottom, 0px));
+ }
+ #bobBrowserlessPublic summary,
+ #bobBrowserlessPublic input,
+ #bobBrowserlessPublic select,
+ #bobBrowserlessPublic button{
+  scroll-margin-bottom:calc(132px + env(safe-area-inset-bottom, 0px));
+ }
+}
+</style>
 <details id="bobBrowserlessPublic" style="margin:16px auto;max-width:860px;padding:12px;border:1px solid #ddd;border-radius:12px;background:white">
  <summary>Browserless · öffentliche Produktrecherche (Test, nur auf Knopfdruck)</summary>
  <p>Nur offizielle SG-, BNP- und öffentliche comdirect-Seiten, keine DEGIRO-Anmeldung. KI-Felder sind ungeprüfte Hinweise; keine Handelsfreigabe.</p>
@@ -179,6 +202,7 @@ PANEL = r"""
  <button type="button" id="bobBlRun">Einmal öffentlich prüfen</button>
  <pre id="bobBlResult" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre>
 </details>
+<div id="bobBrowserlessMobileClearance" aria-hidden="true"></div>
 <script>
 (()=>{const section=document.getElementById('bobBrowserlessPublic');if(!section)return;
  const button=section.querySelector('#bobBlRun'),output=section.querySelector('#bobBlResult');
