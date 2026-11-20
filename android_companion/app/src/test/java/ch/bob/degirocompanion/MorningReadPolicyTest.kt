@@ -596,6 +596,93 @@ class MorningReadPolicyTest {
         assertEquals("RESULT_MISSING",MorningReadPolicy.decide(view,target).code)
         assertEquals(4,MorningReadPolicy.resultTapIndex(view,target))
     }
+    @Test fun quarantinedRealGoldEditTextBesideGlobalLauncherCanBeReused() {
+        val target="DE000SQ02JQ6"
+        val previous="DE000FB0A490"
+        val base=listOf(
+            MorningReadPolicy.Node("Märkte"),
+            MorningReadPolicy.Node("Hebelprodukte",selected=true),
+            MorningReadPolicy.Node("Top Ergebnisse"),
+            MorningReadPolicy.Node("SG Gold Turbo Mini Call $target",
+                row="SG Gold Turbo Mini Call $target"),
+            MorningReadPolicy.Node("K",clickable=true),
+            MorningReadPolicy.Node("V",clickable=true),
+            MorningReadPolicy.Node("Order platzieren",clickable=true,
+                row="Order platzieren"))
+        val input=MorningReadPolicy.Node("Gold",id="search-input",
+            editable=true,focused=false,hint="Mit Namen, ISIN oder Symbol suchen")
+        val nodes=base+input
+        // Genuine order surfaces still block in the ordinary reader.
+        assertEquals(MorningReadPolicy.Kind.BLOCK,
+            MorningReadPolicy.detailDecision(nodes,target,false,
+                keyboardReady=false,resultOpened=false).kind)
+        val focused=MorningReadPolicy.localResearchDecision(nodes,target,
+            keyboardReady=false,resultOpened=false)
+        assertEquals(MorningReadPolicy.Kind.FOCUS,focused.kind)
+        assertEquals(nodes.lastIndex,focused.index)
+        assertEquals("GOLD_ISOLATED_LAUNCHER_INPUT",focused.code)
+        val queried=MorningReadPolicy.localResearchDecision(
+            base+input.copy(focused=true),target,
+            keyboardReady=true,resultOpened=false)
+        assertEquals(MorningReadPolicy.Kind.QUERY,queried.kind)
+        assertEquals(nodes.lastIndex,queried.index)
+        // Reuse the same verified search to replace an old ISIN with the next
+        // ISIN, as in the successful 10930 per-product reader.
+        val next=MorningReadPolicy.localResearchDecision(
+            base+input.copy(text=previous,focused=true),target,
+            keyboardReady=true,resultOpened=false)
+        assertEquals(MorningReadPolicy.Kind.QUERY,next.kind)
+        assertEquals(nodes.lastIndex,next.index)
+        // Never query on a hidden keyboard.
+        assertEquals(MorningReadPolicy.Kind.FOCUS,
+            MorningReadPolicy.localResearchDecision(
+                base+input.copy(focused=true),target,
+                keyboardReady=false,resultOpened=false).kind)
+    }
+
+    @Test fun quarantinedEditTextNeverBypassesGenuineOrderOrAmbiguousLauncher() {
+        val target="DE000SQ02JQ6"
+        val input=MorningReadPolicy.Node("Gold",id="search-input",editable=true,
+            hint="Mit Namen, ISIN oder Symbol suchen")
+        val product=MorningReadPolicy.Node("SG Gold Turbo Mini Call $target",
+            row="SG Gold Turbo Mini Call $target")
+        val launcher=MorningReadPolicy.Node("Order platzieren",clickable=true,
+            row="Order platzieren")
+        val view=listOf(
+            MorningReadPolicy.Node("Märkte"),
+            MorningReadPolicy.Node("Hebelprodukte",selected=true),
+            MorningReadPolicy.Node("Top Ergebnisse"),
+            product,launcher,input)
+        val bad=listOf(
+            view+MorningReadPolicy.Node("Order bestätigen"),
+            view+MorningReadPolicy.Node("Orderart"),
+            view+MorningReadPolicy.Node("Limitpreis"),
+            view+MorningReadPolicy.Node("Stückzahl"),
+            view+MorningReadPolicy.Node("Passwort",password=true),
+            view+MorningReadPolicy.Node("PIN",sensitive=true),
+            view+MorningReadPolicy.Node("Betrag",editable=true),
+            view+launcher,
+            view.mapIndexed { i,n -> if(i==4)n.copy(parent=3) else n },
+            view.mapIndexed { i,n -> if(i==4)n.copy(row="Order platzieren\\nK") else n },
+            view.mapIndexed { i,n -> if(i==5)n.copy(parent=4) else n },
+            view.mapIndexed { i,n -> if(i==5)n.copy(id="",hint="") else n },
+            view.mapIndexed { i,n -> if(i==5)n.copy(text="Limitpreis") else n },
+            view.mapIndexed { i,n -> if(i==5)n.copy(text="unbekannt") else n },
+            view+MorningReadPolicy.Node("Kursdaten"),
+            view.filterNot { it.text=="Hebelprodukte" },
+            view.filterNot { it.text=="Top Ergebnisse" || it.text=="Märkte" },
+            view.mapIndexed { i,n -> if(i==4)n.copy(clickable=false) else n },
+            view+MorningReadPolicy.Node("Orderplatzieren",row="Orderplatzieren"),
+            view+MorningReadPolicy.Node("",row="Order bestätigen")
+        )
+        for((i,nodes) in bad.withIndex()) {
+            val decision=MorningReadPolicy.localResearchDecision(nodes,target,
+                keyboardReady=true,resultOpened=false)
+            assertEquals("Unsafe case $i",MorningReadPolicy.Kind.BLOCK,
+                decision.kind)
+        }
+    }
+
     @Test fun quarantinedGoldResearchRecoversOnlyIsolatedMarketsSearchNextToLauncher() {
         val target="DE000SQ02JQ6"
         val gold=MorningReadPolicy.Node("SG Gold Turbo Mini Call $target",
