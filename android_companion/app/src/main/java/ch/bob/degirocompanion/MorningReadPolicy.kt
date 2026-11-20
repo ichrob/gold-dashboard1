@@ -648,6 +648,14 @@ internal object MorningReadPolicy {
                         }
                     }
         })
+        // A search-labelled widget whose aggregate row also contains K/V
+        // or another action is NOT a harmless absent search control. Block,
+        // rather than entering the passive wait path and hiding ambiguity.
+        if(searchButtons.isEmpty() && nodes.indices.any { i ->
+                val n=nodes[i]
+                i!=launcher && canClick(n) &&
+                    (search(n) || rowSearch(n))
+            }) return null
         return if(searchButtons.size==1) Action(Kind.SEARCH,searchButtons.single())
             else if(searchButtons.isEmpty()) Action(Kind.WAIT,code="GOLD_SEARCH_REBUILDING")
             else null
