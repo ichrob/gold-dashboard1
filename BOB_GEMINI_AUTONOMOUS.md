@@ -7,7 +7,16 @@ sind sie ausdrücklich NICHT als produktiv installiert zu betrachten.
 ## 1. Unabhängiger Gemini-Entwicklerweg
 
 Neuer manueller Workflow: .github/workflows/bob-gemini-independent-draft.yml.
-Nur der Repository-Besitzer ichrob kann ihn auf main starten. Er benötigt den
+Nur der Repository-Besitzer ichrob kann ihn auf main starten.
+Alternativ kann der Besitzer in einem eigenen offenen öffentlichen GitHub-Issue
+exakt `/bob-gemini-draft GEMINI.md` kommentieren. Nur ein neuer Kommentar des
+Besitzers (kein PR-Kommentar) löst den gleichen geschützten Workflow mit der
+festen öffentlichen Zieldatei `GEMINI.md` aus; kein neuer Token ist erforderlich.
+Der Modellaufruf setzt weiterhin die explizite unbilled-Free-Freigabe,
+`GEMINI_API_KEY` und `BOB_GEMINI_DRAFT_PR_ENABLED=1` voraus. Ohne Freigabe
+wird kontrolliert übersprungen. Der Ausgabevalidator akzeptiert ausschließlich
+einen gültigen Patch ohne Testideen oder Begleittext; die Datei bleibt inert.
+ Er benötigt den
 bestehenden GEMINI_API_KEY als GitHub-Secret, ein vom Besitzer bestätigtes,
 unberechnetes Free-Projekt und die neue opt-in-Variable
 BOB_GEMINI_DRAFT_PR_ENABLED=1. Ohne diese Voraussetzungen kein Modellaufruf.

@@ -98,7 +98,7 @@ def run():
     if git_run("show", "HEAD:" + target) != source.rstrip("\n"):
         raise ValueError("source-version-mismatch")
     STAGE = "model-public-patch"
-    patch = strict_patch(model_proposal(issue, target, source, key), target)
+    patch = strict_patch(model_proposal(issue, target, source, key, patch_only=True), target)
     STAGE = "check-patch-no-execution"
     git_run("apply", "--check", "--whitespace=error", "-", input=patch)
     STAGE = "create-inert-draft"

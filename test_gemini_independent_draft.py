@@ -65,6 +65,23 @@ class DraftSafetyTests(unittest.TestCase):
             draft.run()
             github.assert_not_called()
 
+    def test_draft_calls_model_with_patch_only_prompt(self):
+        # The generic mobile model response may include notes; draft must request only diff.
+        import inspect
+        source = inspect.getsource(draft.run)
+        self.assertIn('patch_only=True', source)
+
+    def test_owner_comment_trigger_is_limited_to_one_public_file(self):
+        from pathlib import Path
+        workflow = Path('.github/workflows/bob-gemini-independent-draft.yml').read_text()
+        self.assertIn('issue_comment:', workflow)
+        self.assertIn('types: [created]', workflow)
+        self.assertIn("github.event.comment.user.login == 'ichrob'", workflow)
+        self.assertIn("!github.event.issue.pull_request", workflow)
+        self.assertIn("github.event.comment.body == '/bob-gemini-draft GEMINI.md'", workflow)
+        self.assertIn("'GEMINI.md' || inputs.target_file", workflow)
+        self.assertIn('BOB_GEMINI_DRAFT_PR_ENABLED:', workflow)
+
 
 if __name__ == "__main__":
     unittest.main()
