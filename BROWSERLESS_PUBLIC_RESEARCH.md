@@ -31,6 +31,25 @@ keine automatische Tradeausführung, keine Order.
   Fallback, aber die dokumentierte Eskalation kann trotzdem zusätzlich
   Browserzeit, KI-Extraktion und CAPTCHA-Einheiten kosten. Daher keine
   Zusicherung eines festen Einheitenpreises pro Einzelaufruf.
+- Nach **zwei** unabhängigen, manuell ausgelösten SG-Praxisabrufen
+  (20.11.2026, ca. 06:10 und 06:30 CH) meldete Browserless zwar HTTP 200 /
+  ok=true, aber Bob konnte die angefragte Produktidentität nicht im
+  zurückgelieferten Markdown bestätigen. Ohne die ursprünglichen
+  Seiteninhalte ist offen, ob der SG-Seitenfilter Produktdaten entfernte
+  oder Browserless z.B. eine unpassende Start-/Schutzseite zurücklieferte.
+  Es gibt deshalb keine bestätigte Browserless-Datenextraktion.
+- Der SG-Abruf verwendet nun onlyMainContent=false, um die öffentliche
+  Produktüberschrift und ISIN/WKN-Stammdaten auch außerhalb des gefilterten
+  Hauptinhalts zu bewahren; die erhöhte Antwortgrößengrenze von 512 KiB
+  ist weiterhin strikt begrenzt. Für BNP/comdirect gilt weiterhin der
+  Main-Content-Filter. Ein SG-Kontingent-Abruf wird dadurch **nicht**
+  automatisch erneut ausgeführt.
+- Bei einem erneuten Identitätsfehler erscheint lediglich ein
+  geschlossener Diagnoseblock: Browserstrategie, grobe Textgrößenklasse,
+  Boolesche ISIN/WKN/Produktmerkmale und mögliche Schutzseite.
+  Keine Seiteninhalte, Token, Produktpreisfelder, Kontoangaben oder
+  Rohlogs werden übertragen. Browserless-Erfolg wird ausdrücklich
+  nicht mit verifizierter Goldproduktinformation gleichgesetzt.
 - Prozesslokale Schranke: maximal 3 einzelne Versuche pro UTC-Tag und 12 pro
   UTC-Monat; nur ein Versuch je ISIN und Quelle im Prozess. Die Schranke
   wird bei Render-Neustart zurückgesetzt und ist keine dauerhafte Abrechnungssperre.

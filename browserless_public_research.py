@@ -16,6 +16,7 @@ except ImportError:  # Isolated simulator CI imports server without HTTP depende
 
 API = "https://production-sfo.browserless.io/smart-scrape"
 MAX_RESPONSE = 131072
+MAX_SG_RESPONSE = 524288  # Browserless includes public source HTML plus markdown/json.
 MAX_MONTHLY_CALLS = 12
 MAX_DAILY_CALLS = 3
 FREE_CONFIRMATION_ENV = "BOB_BROWSERLESS_FREE_ACCOUNT_CONFIRMED"
@@ -119,22 +120,55 @@ def source_identity_evidence(markdown, isin, source):
     if other_isins:
         return None
     wkn = isin[5:11]
-    # This must be the SG product TITLE within the first 2,500 characters.
-    # A generic product listing, sidebar mention or search suggestion is
-    # not sufficient identity evidence.
+    # Full SG page capture may contain navigation before its real product
+    # heading. Anchor a markdown heading, not an arbitrary mention in text.
     title = re.search(r'(?m)^[ \t]{0,3}#{1,6}[ \t]+' + re.escape(wkn)
-                      + r'(?=[ \t]|$|[|])', text[:2500])
+                      + r'(?=[ \t]|$|[|])', text[:30000])
     if not title:
         return None
-    if not all(term in text for term in ('STAMMDATEN', 'BASISWERT', 'KNOCK-OUT')):
+    product_region = text[title.start():title.start()+16000]
+    if not all(term in product_region for term in ('STAMMDATEN', 'BASISWERT', 'KNOCK-OUT')):
         return None
     return 'sg-product-title-wkn-only'
 
 
-def _safe_failure(isin, source, code):
-    return dict(isin=isin, source=source, state=code, researchOnly=True,
-                eligible=False, tradeApproved=False, isDegiroQuote=False,
-                fields={})
+def safe_page_diagnostics(markdown, isin, source, strategy):
+    """Finite, non-identifying counters only. Never return HTML, raw text or keys."""
+    text = markdown.upper() if isinstance(markdown, str) else ""
+    wkn = isin[5:11] if isinstance(isin, str) and len(isin) == 12 else ""
+    explicit = bool(re.search(r'(?<![A-Z0-9])' + re.escape(isin)
+                              + r'(?![A-Z0-9])', text)) if isinstance(isin, str) else False
+    heading = bool(wkn and re.search(r'(?m)^[ \t]{0,3}#{1,6}[ \t]+'
+                                     + re.escape(wkn) + r'(?=[ \t]|$|[|])',
+                                     text[:30000]))
+    other = any(candidate != isin for candidate in re.findall(
+        r'(?<![A-Z0-9])DE[A-Z0-9]{10}(?![A-Z0-9])', text))
+    markers = all(term in text for term in ('STAMMDATEN', 'BASISWERT', 'KNOCK-OUT'))
+    challenge = any(term in text[:10000] for term in (
+        'ACCESS DENIED', 'JUST A MOMENT', 'CLOUDFLARE CHALLENGE',
+        'CAPTCHA VERIFICATION', 'BOT DETECTION'))
+    amount = len(text)
+    size = ('empty' if amount == 0 else 'short' if amount < 256
+            else 'medium' if amount < 4096 else 'long')
+    strategy = strategy if strategy in (
+        'http-fetch', 'http-proxy', 'browser', 'browser-captcha', 'cache'
+    ) else 'unknown'
+    return dict(
+        providerStrategy=strategy, markdownSizeClass=size,
+        hasExactIsin=explicit, hasMatchingWknHeading=heading,
+        hasProductMarkers=markers, hasOtherProductIsins=other,
+        possibleChallenge=challenge, sgFullContentRequested=(source == 'sg'),
+        note='Nur geschlossene Diagnosemerkmale; kein Seiteninhalt oder Originalkurs.'
+    )
+
+
+def _safe_failure(isin, source, code, diagnostics=None):
+    result = dict(isin=isin, source=source, state=code, researchOnly=True,
+                  eligible=False, tradeApproved=False, isDegiroQuote=False,
+                  fields={})
+    if isinstance(diagnostics, dict):
+        result["diagnostics"] = diagnostics
+    return result
 
 
 def extract(isin, source="sg", *, now=None):
@@ -156,7 +190,9 @@ def extract(isin, source="sg", *, now=None):
             API, params={"token": token, "timeout": 25000},
             json={"url": url, "formats": ["markdown", "json"],
                   "jsonOptions": {"schema": _SCHEMA, "prompt": _PROMPT},
-                  "onlyMainContent": True, "maxAge": 0,
+                  # Main-only stripping can omit SG's product heading and
+                  # identity table. Keep the entire public SG product page.
+                  "onlyMainContent": source != "sg", "maxAge": 0,
                   "proxy": "datacenter"},
             timeout=(5, 35), stream=True, allow_redirects=False,
         ) as response:
@@ -165,7 +201,7 @@ def extract(isin, source="sg", *, now=None):
             chunks, size = [], 0
             for chunk in response.iter_content(16384):
                 size += len(chunk)
-                if size > MAX_RESPONSE:
+                if size > (MAX_SG_RESPONSE if source == "sg" else MAX_RESPONSE):
                     return _safe_failure(isin, source, "response-too-large")
                 chunks.append(chunk)
         data = json.loads(b"".join(chunks))
@@ -179,7 +215,9 @@ def extract(isin, source="sg", *, now=None):
         fields = data.get("json")
         identity_evidence = source_identity_evidence(markdown, isin, source)
         if identity_evidence is None:
-            return _safe_failure(isin, source, "identity-not-proven")
+            return _safe_failure(
+                isin, source, "identity-not-proven",
+                safe_page_diagnostics(markdown, isin, source, data.get("strategy")))
         if not isinstance(fields, dict):
             return _safe_failure(isin, source, "extraction-not-proven")
         if identity_evidence == "exact-isin-in-page":
@@ -257,16 +295,23 @@ PANEL = r"""
 (()=>{const section=document.getElementById('bobBrowserlessPublic');if(!section)return;
  const button=section.querySelector('#bobBlRun'),output=section.querySelector('#bobBlResult');
  const status=section.querySelector('#bobBlStatus');
+ const input=section.querySelector('#bobBlIsin'),selector=section.querySelector('#bobBlSource');
+ let canStart=false,submitted=null;
+ const selected=()=>input.value.trim().toUpperCase()+'|'+selector.value;
+ const refresh=()=>{button.disabled=!canStart||selected()===submitted};
  button.disabled=true;
+ input.addEventListener('input',refresh);
+ selector.addEventListener('change',refresh);
  fetch('/api/browserless/public-status',{credentials:'same-origin',cache:'no-store'})
   .then(r=>{if(!r.ok)throw Error();return r.json()})
-  .then(d=>{status.textContent='Bereitschaft: '+d.state+'. Nur öffentlicher, einmaliger Test.';button.disabled=!d.canStart})
-  .catch(()=>{status.textContent='Bereitschaft momentan nicht prüfbar';button.disabled=true});
+  .then(d=>{status.textContent='Bereitschaft: '+d.state+'. Nur öffentlicher, einmaliger Test.';canStart=!!d.canStart;refresh()})
+  .catch(()=>{status.textContent='Bereitschaft momentan nicht prüfbar';canStart=false;refresh()});
  button.addEventListener('click',async()=>{
-  const isin=section.querySelector('#bobBlIsin').value.trim().toUpperCase();
-  const source=section.querySelector('#bobBlSource').value;
+  const isin=input.value.trim().toUpperCase();
+  const source=selector.value;
   if(!/^DE[A-Z0-9]{10}$/.test(isin)){output.textContent='Ungültige ISIN';return}
-  button.disabled=true;output.textContent='Öffentliche Seite wird einmal geprüft …';
+  if(!canStart||selected()===submitted)return;
+  submitted=selected();refresh();output.textContent='Öffentliche Seite wird einmal geprüft …';
   try{
    const response=await fetch('/api/browserless/public-research',{
     method:'POST',credentials:'same-origin',
@@ -276,13 +321,13 @@ PANEL = r"""
    const data=await response.json();
    if(!response.ok)throw Error('HTTP '+response.status);
    const help={
-    'identity-not-proven':'Die Browserless-Seite zeigt die Produktidentität nicht ausreichend eindeutig. Keine Daten übernommen. Bitte nicht mehrfach denselben Abruf starten.',
+    'identity-not-proven':'Die Browserless-Seite zeigt die Produktidentität nicht ausreichend eindeutig. Keine Daten übernommen. Die anonymisierte Diagnose im Ergebnis zeigt, welche Produktmerkmale fehlen. Bitte nicht denselben Abruf wiederholen.',
     'extraction-not-proven':'Die KI-Ausgabe enthält keine passende vollständige ISIN. Keine Daten übernommen.',
     'already-attempted':'Diese ISIN/Quelle wurde in diesem Serverlauf bereits geprüft. Kein zweiter Abruf gestartet.'
    };
    output.textContent=(help[data.state]?help[data.state]+'\n\n':'')+JSON.stringify(data,null,2);
   }catch{output.textContent='Recherche derzeit nicht verfügbar. Keine Daten verändert.'}
-  finally{button.disabled=false}
+  finally{refresh()}
  });
 })();
 </script>
