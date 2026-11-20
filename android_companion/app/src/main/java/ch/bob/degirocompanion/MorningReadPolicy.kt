@@ -600,11 +600,15 @@ internal object MorningReadPolicy {
         }
         val launcher=markers.singleOrNull() ?: return null
         val button=nodes[launcher]
+        val exactLauncher=Regex("(?iu)^order platzieren$")
         if(!canClick(button) || button.containsInput || button.editable ||
-            listOf(button.text,button.description,button.hint,button.row)
+            listOf(button.text,button.description,button.hint)
                 .filter(String::isNotBlank).any {
-                    !Regex("(?iu)^order platzieren$").matches(normalized(it))
-                }) return null
+                    !exactLauncher.matches(normalized(it))
+                } ||
+            button.row.lines().filter(String::isNotBlank).any {
+                !exactLauncher.matches(normalized(it))
+            }) return null
         fun descendant(child:Int,ancestor:Int):Boolean {
             var p=nodes[child].parent; var steps=0
             while(p in nodes.indices && steps++<nodes.size) {
@@ -615,6 +619,17 @@ internal object MorningReadPolicy {
         }
         if(nodes.indices.any { i -> i!=launcher && descendant(i,launcher) })
             return null
+        // A launcher embedded in a product card is NOT the global Markets
+        // launcher, even if its leaf label is exactly "Order platzieren".
+        var ancestor=button.parent;var hops=0
+        while(ancestor in nodes.indices && hops++<nodes.size) {
+            val text=nodes[ancestor].text
+            if(ids.containsMatchIn(text.uppercase()) ||
+                (Regex("(?iu)\\b(gold|xau)\\b").containsMatchIn(text) &&
+                 Regex("(?iu)\\b(turbo|knock[ -]?out)\\b").containsMatchIn(text)))
+                return null
+            ancestor=nodes[ancestor].parent
+        }
         // If the search bar is temporarily virtualized, open only an
         // individually labelled, uniquely clickable search control.
         // Do not choose an account icon, result row or K/V control.
