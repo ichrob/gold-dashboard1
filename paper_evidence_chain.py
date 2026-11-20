@@ -8,9 +8,11 @@ def positive(v):
 
 
 def capture_selection(selection, choice, now):
-    # Freeze exactly the ranked shortlist used by this entry; never all raw input.
+    # Freeze only the bounded actual candidates used for this PAPER entry,
+    # including a qualified fallback below the displayed Top 3. Never copy
+    # raw issuer payloads or unbounded screenshots into the persisted case.
     rows=[{k:item.get(k) for k in ('isin','direction','score','source','at','indicative','estimated')}
-          for item in (selection.get('choices') or [])[:3] if isinstance(item,dict)]
+          for item in (selection.get('choices') or [])[:15] if isinstance(item,dict)]
     return dict(version=1,capturedAt=now,selectedIsin=choice.get('isin'),rankedShortlist=rows)
 
 
