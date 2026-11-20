@@ -46,7 +46,7 @@ def summarize_usage(response):
         events += row["count"]
         size += row["eventSize"]
         worker = row.get("service")
-        if worker in results:
+        if isinstance(worker, str) and worker in results:
             results[worker]["events"] += row["count"]
             results[worker]["bytes"] += row["eventSize"]
         else:
