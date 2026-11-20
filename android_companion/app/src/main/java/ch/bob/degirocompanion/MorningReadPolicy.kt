@@ -563,6 +563,29 @@ internal object MorningReadPolicy {
         // A WebView can retain focus after hiding the keyboard. Open it before editing.
         return if(action.kind==Kind.QUERY && !keyboardReady) action.copy(kind=Kind.FOCUS) else action
     }
+    /** The independently verified read-only Gold preview can retain the
+     * standalone global "Order platzieren" launcher. For locally quarantined
+     * research, permit ONLY focus/text replacement in the one genuine Gold
+     * search field; ordinary detailDecision still owns result/card/return
+     * decisions and every protected order/input surface still blocks.
+     */
+    fun localResearchDecision(nodes: List<Node>, target: String,
+                              keyboardReady: Boolean = true,
+                              resultOpened: Boolean = true): Action {
+        val ordinary=detailDecision(nodes,target,false,keyboardReady,resultOpened)
+        if(ordinary.kind != Kind.BLOCK && ordinary.kind != Kind.WAIT)return ordinary
+        if(!SeriesEvidence.validIsin(target) || genericTurboDirectory(nodes) ||
+            captureGoldList(nodes,true).kind!=Kind.COLLECT)return ordinary
+        val inputs=nodes.indices.filter { nodes[it].editable }
+        if(inputs.size!=1)return ordinary
+        val index=inputs.single()
+        val field=nodes[index]
+        if(!field.enabled || field.password || field.sensitive ||
+            !isSearchInput(field.id,field.description,field.hint) ||
+            field.text !in setOf("Gold",""))return ordinary
+        return Action(if(field.focused && keyboardReady) Kind.QUERY else Kind.FOCUS,index)
+    }
+
     /** Move back toward the existing search only after ten exact list identities
      * were captured. This permits SCROLL_BACKWARD, not a product tap, input, or
      * acceptance of still-pending server OCR. Reject every ambiguous surface. */
