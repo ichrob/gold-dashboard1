@@ -138,7 +138,7 @@ def _choices(selection, quotes, market, now, arm, policy):
 
 def seed(now):
     return dict(version=VERSION,startedAt=now,checkedAt=None,realOrders=False,
-        opportunities=0,eligibleOriginalProducts=0,
+        opportunities=0,lastOpportunityKey=None,eligibleOriginalProducts=0,
         policies={name:cohorts.seed(now) for name in POLICIES},
         selectionEvidence={name:dict(eligible=0,selected=0)
                            for name in POLICIES})
@@ -154,7 +154,11 @@ def advance(old,market,selection,quotes,now):
             and market.get("ready") is True
             and market.get("direction") in ("LONG","SHORT")
             and (market.get("entryTimingGate") or {}).get("allowed") is True):
-        result["opportunities"]+=1
+        key=str((market.get("ruleVersion"),market.get("analysisBarAt"),
+                 market.get("direction")))
+        if cohorts.number(market.get("analysisBarAt")) and key!=result.get("lastOpportunityKey"):
+            result["opportunities"]+=1
+            result["lastOpportunityKey"]=key
     for policy in POLICIES:
         account=result["policies"][policy]
         chosen,eligible=_choices(selection,quotes,market,now,account,policy)
