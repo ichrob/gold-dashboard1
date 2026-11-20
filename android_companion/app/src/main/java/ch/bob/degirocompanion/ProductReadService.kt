@@ -2437,6 +2437,19 @@ class ProductReadService : AccessibilityService() {
                             tapped
                         } else focusSearch(node)
                     }
+                    else if(action.kind==MorningReadPolicy.Kind.SEARCH &&
+                        action.code=="GOLD_GLOBAL_LAUNCHER_SEARCH" &&
+                        MorningReadRun.researchOnlyActive()) {
+                        // The uniquely labelled Gold search beside a global
+                        // order launcher must pass the existing stricter
+                        // active-window, overlays, focus and touch-exploration
+                        // checks. Never use an unverified ACTION_CLICK here.
+                        val tapped=tapRecognizedSearch(root.windowId)
+                        ProductReadDiagnostics.record(if(tapped)
+                            ProductReadDiagnostics.Outcome.LOCAL_RESEARCH_GLOBAL_SEARCH_TAP_SENT
+                            else ProductReadDiagnostics.Outcome.LOCAL_RESEARCH_GLOBAL_SEARCH_TAP_REJECTED)
+                        tapped
+                    }
                     else if(action.kind==MorningReadPolicy.Kind.SUBMIT) submitSearch(node)
                     else if(action.kind==MorningReadPolicy.Kind.CATEGORY_SCROLL) scrollCategories(node)
                     else if(action.kind==MorningReadPolicy.Kind.CATEGORY) tapRecognizedSearch(root.windowId,category=true)
