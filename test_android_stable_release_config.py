@@ -245,7 +245,8 @@ class AndroidStableReleaseTests(unittest.TestCase):
             'protection(nodes)!="PROTECTED_ORDER_CONFIRM"',
             'genericTurboDirectory(nodes)',
             'nodes.count { exact(it.text,"Hebelprodukte") }!=1',
-            'nodes.count { exact(it.text,"Top Ergebnisse") }!=1',
+            'if(!topResults && !(markets && product)) return null',
+            '"orderübersicht"', '"orderzusammenfassung"',
             'productSearchWithoutLauncher(check)',
             'if(protection(clean)!=null) return null',
             'descendant(i,launcher)', 'canClick(n)',
@@ -262,6 +263,24 @@ class AndroidStableReleaseTests(unittest.TestCase):
         self.assertIn('val tapped=tapRecognizedSearch(root.windowId)', service)
         self.assertIn('LOCAL_RESEARCH_GLOBAL_SEARCH_TAP_REJECTED', service)
         self.assertIn('!nestedInProduct(i)', recovery)
+        # The single global order-launcher label must not cause a normal
+        # Gold search without a temporarily visible EditText to be classified
+        # as a protected ORDER confirmation. WAIT never types any ISIN.
+        preflight = service.split('private fun continueLocalGoldResearch(',1)[1].split(
+            'private fun returnToSearchWhileImporting(',1)[0]
+        for guard in [
+            'decision.kind==MorningReadPolicy.Kind.WAIT',
+            'decision.code=="GOLD_SEARCH_REBUILDING"',
+            'if(goldSearchRebuilding)',
+            'LocalResearchForegroundPolicy.mayWait(elapsed,',
+            'continueLocalGoldResearch(local,ticket,attempt,startedAt)',
+            'LOCAL_RESEARCH_GOLD_SEARCH_REBUILDING',
+            'LOCAL_RESEARCH_GOLD_SEARCH_WAIT_EXPIRED'
+        ]: self.assertIn(guard,preflight)
+        self.assertIn('return observation("LOCAL_RESEARCH_GOLD_SEARCH_REBUILDING")',service)
+        # A user-visible search result must continue through the previously
+        # audited overlay/window checked text-only search gesture.
+        self.assertIn('val tapped=tapRecognizedSearch(root.windowId)',service)
 
 
         seek=service.split('A fresh run can begin on yesterday',1)[1].split('val proposed=',1)[0]
