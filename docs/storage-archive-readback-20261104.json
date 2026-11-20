@@ -1,0 +1,45 @@
+{
+  "date": "2026-11-04",
+  "scope": "existing-production-decision-archives-readonly",
+  "status": "verified",
+  "encryptedFilesReadBack": 47,
+  "objectsVerified": 159,
+  "decisionReferencesReconstructed": 561,
+  "remoteCacheUsed": false,
+  "productionRowsModified": false,
+  "physicalProductionBytesFreed": 0,
+  "backupProofState": "verified-fresh",
+  "volumeObservedAtEpoch": 1793823960,
+  "volumeBytes": 776167400,
+  "databaseBytes": 649287359,
+  "writerMaximumVolumeBytes": 750000000,
+  "bytesAboveWriterLimit": 26167400,
+  "walDiskObservation": "unavailable: database role lacks pg_ls_waldir permission",
+  "limitations": [
+    "Existing archives checked; no new offload performed.",
+    "Volume-minus-database is not proven WAL usage.",
+    "Do not raise the writer guard without a reviewed measured maintenance budget."
+  ],
+  "largestTables": [
+    [
+      "bob_decision_audit",
+      155279360
+    ],
+    [
+      "bob_diagnostic_history",
+      150683648
+    ],
+    [
+      "bob_metric_checks",
+      56467456
+    ],
+    [
+      "bob_shadow_study_events",
+      48201728
+    ],
+    [
+      "bob_decision_outcomes",
+      46891008
+    ]
+  ]
+}

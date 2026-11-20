@@ -1,0 +1,65 @@
+{
+  "date": "2026-11-04",
+  "probeRevision": "238b24a350d8fd1fae7cbbb41403786d42c046f4",
+  "indexProbe": {
+    "keysVerified": true,
+    "sourceReadOnly": true,
+    "targetTemporaryOnly": true,
+    "results": [
+      {
+        "index": "bob_decision_outcomes_pkey",
+        "before": 13778944,
+        "rebuilt": 13795328
+      },
+      {
+        "index": "bob_metric_checks_pkey",
+        "before": 13033472,
+        "rebuilt": 12599296
+      },
+      {
+        "index": "bob_diagnostic_history_trace",
+        "before": 12836864,
+        "rebuilt": 10395648
+      },
+      {
+        "index": "bob_diagnostic_history_pkey",
+        "before": 8749056,
+        "rebuilt": 9052160
+      },
+      {
+        "index": "bob_candle_evidence_pkey",
+        "before": 6283264,
+        "rebuilt": 6217728
+      }
+    ]
+  },
+  "productionMaintenance": {
+    "index": "bob_diagnostic_history_trace",
+    "operation": "REINDEX INDEX CONCURRENTLY",
+    "beforeBytes": 12853248,
+    "afterBytes": 10403840,
+    "relationBytesReclaimed": 2449408,
+    "indexDefinitionPreserved": true,
+    "indexValid": true,
+    "indexReady": true,
+    "allIndexesValid": true,
+    "originalRowsDeleted": 0,
+    "statementTimeoutSeconds": 120,
+    "lockTimeoutSeconds": 1,
+    "maintenanceWorkMemMiB": 16,
+    "volumePreflightBytes": 777084900,
+    "guard": "fresh-volume + 4 * index-size + 128000000 < 1000000000; index < 16000000; verified fresh backup; no concurrent index operation"
+  },
+  "volumeAfter": {
+    "bytes": 777375740,
+    "observedAtEpoch": 1793824980
+  },
+  "netVolumeReductionObserved": false,
+  "testUserTablesAfter": 0,
+  "newPaidJobs": 0,
+  "notes": [
+    "Only a measured index was rebuilt; no table/TOAST rewrite or original deletion.",
+    "Relation size shrank; provider volume did not yet show a net reduction. Do not claim 2.45 MB net provider space freed.",
+    "Remaining selected indexes offer under 0.5 MB each or no savings. Index maintenance cannot alone close the approximately 27 MB gap to the 750 MB writer guard."
+  ]
+}
