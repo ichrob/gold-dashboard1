@@ -88,6 +88,42 @@ class MorningListEndPolicyTest {
             MorningReadPolicy.Action(MorningReadPolicy.Kind.SEARCH,isins=visible)))
     }
 
+    @Test fun oneIndependentGlobalOrderLauncherDoesNotSuppressFourthReadOnlyPhoto() {
+        val visible=listOf(ids[0],ids[3])
+        val collect=MorningReadPolicy.Action(MorningReadPolicy.Kind.COLLECT,isins=visible)
+        val seen=ids.toSet()
+        val standalone=MorningReadPolicy.Node("Order platzieren",clickable=true)
+        assertTrue(MorningListEndPolicy.needsFooterRecapture(
+            page(standalone),3,seen,visible,collect))
+        // The decision only permits a cropped PHOTO, not a product or order action.
+        assertFalse(MorningListEndPolicy.needsFooterRecapture(
+            page(standalone),4,seen,visible,collect))
+        assertFalse(MorningListEndPolicy.needsFooterRecapture(
+            page(standalone),3,seen,visible,
+            MorningReadPolicy.Action(MorningReadPolicy.Kind.SEARCH,isins=visible)))
+        assertFalse(MorningListEndPolicy.needsFooterRecapture(
+            page(MorningReadPolicy.Node("Order platzieren")),
+            3,seen,visible,collect))
+        assertFalse(MorningListEndPolicy.needsFooterRecapture(
+            page(MorningReadPolicy.Node("Order bestätigen",clickable=true)),
+            3,seen,visible,collect))
+        assertFalse(MorningListEndPolicy.needsFooterRecapture(
+            page(MorningReadPolicy.Node("Order platzieren | Limitpreis",clickable=true)),
+            3,seen,visible,collect))
+        assertFalse(MorningListEndPolicy.needsFooterRecapture(
+            page(MorningReadPolicy.Node("Order platzieren",clickable=true,parent=1)),
+            3,seen,visible,collect))
+        assertFalse(MorningListEndPolicy.needsFooterRecapture(
+            page(standalone)+MorningReadPolicy.Node("Order platzieren",clickable=true),
+            3,seen,visible,collect))
+        assertFalse(MorningListEndPolicy.needsFooterRecapture(
+            page(standalone)+MorningReadPolicy.Node("Stückzahl"),
+            3,seen,visible,collect))
+        assertFalse(MorningListEndPolicy.needsFooterRecapture(
+            page(standalone)+MorningReadPolicy.Node("Passwort",password=true),
+            3,seen,visible,collect))
+    }
+
     @Test fun fourImagesMayBeSubmittedButNeverCountAsLocalCompletion() {
         assertTrue(MorningListEndPolicy.maySubmitAtCaptureLimit(4,ids.toSet()))
         assertFalse(MorningListEndPolicy.maySubmitAtCaptureLimit(3,ids.toSet()))
