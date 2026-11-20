@@ -701,77 +701,6 @@ internal object MorningReadPolicy {
      * search field; ordinary detailDecision still owns result/card/return
      * decisions and every protected order/input surface still blocks.
      */
-    /** The existing 10930 ISIN reader can re-focus an actual search EditText
-     * even when the separate Markets "Order platzieren" launcher is exposed.
-     * This decision is called ONLY for the owner's quarantined, nontrading
-     * local Gold research, never for an imported trade or order screen.
-     * It returns the proven INPUT index only, never the launcher/card. */
-    private fun isolatedGoldInputAfterLauncher(
-        nodes: List<Node>, target: String, keyboardReady: Boolean
-    ): Action? {
-        if (!SeriesEvidence.validIsin(target) || nodes.isEmpty() ||
-            nodes.size>500 || genericTurboDirectory(nodes) ||
-            protection(nodes)!="PROTECTED_ORDER_CONFIRM") return null
-        // This already requires one independently labelled search EditText
-        // and exactly one isolated, exact global launcher. Other protected
-        // fields remain protected after removal of that launcher marker.
-        val clean=productSearchWithoutLauncher(nodes) ?: return null
-        if (protection(clean)!=null) return null
-        fun exact(value:String,label:String)=normalized(value).equals(label,true)
-        val leverage=nodes.filter { exact(it.text,"Hebelprodukte") }.singleOrNull()
-            ?: return null
-        if (!nodes.any { exact(it.text,"Top Ergebnisse") } &&
-            !(leverage.selected && nodes.any { exact(it.text,"Märkte") }))
-            return null
-        if (nodes.any { n -> normalized(n.text).lowercase() in setOf(
-                "kursdaten","produktdetails","orderdetails","orderübersicht",
-                "orderzusammenfassung","order bestätigen","confirm order") })
-            return null
-        val markers=nodes.indices.filter { i ->
-            listOf(nodes[i].text,nodes[i].description,nodes[i].hint)
-                .any(orderMarkers.first().second::containsMatchIn)
-        }
-        val launcherIndex=markers.singleOrNull() ?: return null
-        // Neither an aggregate product wrapper nor a nested order button
-        // can masquerade as the separate Markets launcher.
-        fun descendant(child:Int,ancestor:Int):Boolean {
-            var at=nodes[child].parent;var hops=0
-            while(at in nodes.indices && hops++<nodes.size) {
-                if(at==ancestor)return true
-                at=nodes[at].parent
-            }
-            return false
-        }
-        if(nodes.indices.any { it!=launcherIndex && descendant(it,launcherIndex) })
-            return null
-        val isin=Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b")
-        var parent=nodes[launcherIndex].parent;var hops=0
-        while(parent in nodes.indices && hops++<nodes.size) {
-            val n=nodes[parent]
-            if(isin.containsMatchIn(n.text.uppercase()) ||
-                isin.containsMatchIn(n.row.uppercase()) ||
-                (Regex("(?iu)\\b(gold|xau)\\b").containsMatchIn(n.row) &&
-                 Regex("(?iu)\\b(turbo|knock[ -]?out|mini[ -]?future)\\b")
-                     .containsMatchIn(n.row))) return null
-            parent=n.parent
-        }
-        val inputIndex=nodes.indices.filter { nodes[it].editable }.singleOrNull()
-            ?: return null
-        val field=nodes[inputIndex]
-        if (!field.enabled || field.password || field.sensitive ||
-            !isSearchInput(field.id,field.description,field.hint) ||
-            !(field.text in setOf("","Gold") ||
-                SeriesEvidence.validIsin(field.text.uppercase())))
-            return null
-        // No extra order fields/embedded order markers, even if they are
-        // represented only in an aggregate row instead of the text label.
-        val forbidden=Regex("(?iu)order bestätigen|confirm order|orderart|ordertyp|limitpreis|stückzahl|anzahl kaufen|passwort|password|login|anmelden")
-        if (nodes.indices.any { it!=launcherIndex &&
-                forbidden.containsMatchIn(nodes[it].row) }) return null
-        return Action(if(field.focused && keyboardReady) Kind.QUERY else Kind.FOCUS,
-            inputIndex,code="GOLD_ISOLATED_LAUNCHER_INPUT")
-    }
-
     fun localResearchDecision(nodes: List<Node>, target: String,
                               keyboardReady: Boolean = true,
                               resultOpened: Boolean = true): Action {
@@ -780,7 +709,6 @@ internal object MorningReadPolicy {
             // Only an original, owner-started quarantined Gold research run
             // can use this narrow extra classification. Genuine order views
             // stay BLOCK: the actual search must be separately labelled.
-            isolatedGoldInputAfterLauncher(nodes,target,keyboardReady)?.let { return it }
             isolatedGoldSearchAfterLauncher(nodes)?.let { return it }
             // CRITICAL: do not fall through to importedListSearch(), which
             // may create a synthetic Gold input for SCROLL classification.
