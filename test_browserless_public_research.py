@@ -124,6 +124,74 @@ class PublicBrowserlessTests(unittest.TestCase):
             ).encode()]
             self.assertEqual(b.extract("DE000FG77FN1", now=self.now)["state"], "extraction-not-proven")
 
+    def test_sg_wkn_title_fallback_is_research_only(self):
+        markdown = """# BEST Turbo on Gold
+## FB0A49
+Stammdaten
+WKN FB0A49
+Produktart BEST Turbo-Optionsscheine
+Basiswert Gold
+Knock-Out-Barriere 4.151,2285 USD
+"""
+        self.assertEqual(b.source_identity_evidence(markdown, "DE000FB0A490", "sg"),
+                         "sg-product-title-wkn-only")
+        self.assertIsNone(b.source_identity_evidence(markdown, "DE000FB0A490", "comdirect"))
+        data = {"ok": True, "statusCode": 200, "strategy": "http-fetch",
+                "markdown": markdown, "json": {"isin": "DE000FB0A490", "direction": "Put",
+                "knockOut": "4.151,2285 USD", "quoteTime": "unknown"}}
+        response = MagicMock()
+        response.status_code = 200
+        response.iter_content.return_value = [json.dumps(data).encode()]
+        with patch.dict(os.environ, {"BROWSERLESS_API_TOKEN": "private",
+                                     "BOB_BROWSERLESS_PUBLIC_RESEARCH": "1",
+                                     "BOB_BROWSERLESS_FREE_ACCOUNT_CONFIRMED": "1"}), \
+                patch.object(b.requests, "post") as post:
+            post.return_value.__enter__.return_value = response
+            result = b.extract("DE000FB0A490", now=self.now)
+        self.assertEqual(result["state"], "unverified-research")
+        self.assertEqual(result["sourceIdentityEvidence"], "sg-product-title-wkn-only")
+        self.assertTrue(result["sourceIdentityLimited"])
+        self.assertFalse(result["eligible"])
+        self.assertFalse(result["tradeApproved"])
+        self.assertFalse(result["originalQuoteTimeVerified"])
+        post.assert_called_once()
+
+    def test_sg_wkn_lookalikes_are_not_identity(self):
+        isin = "DE000FB0A490"
+        valid = "## FB0A49\nStammdaten\nBasiswert Gold\nKnock-Out-Barriere 4151 USD"
+        cases = [
+            "# Produkte\nFB0A49\nStammdaten\nBasiswert Gold\nKnock-Out-Barriere 4151",
+            "## FB0A49\nStammdaten\nBasiswert Gold",
+            "## FB0A40\nStammdaten\nBasiswert Gold\nKnock-Out-Barriere 4151",
+            valid + "\nISIN DE000FG77FN1",
+            "# Artikel\nDas Symbol FB0A49 ist hier erwähnt\nStammdaten\nBasiswert Gold\nKnock-Out-Barriere 4151",
+        ]
+        for page in cases:
+            with self.subTest(page=page[:45]):
+                self.assertIsNone(b.source_identity_evidence(page, isin, "sg"))
+        self.assertEqual(b.source_identity_evidence(
+            "Stammdaten ISIN DE000FB0A490", isin, "sg"), "exact-isin-in-page")
+        self.assertIsNone(b.source_identity_evidence(
+            "Stammdaten ISIN DE000FG77FN1", isin, "sg"))
+
+    def test_wkn_only_does_not_override_mismatched_ai_isin(self):
+        response = MagicMock()
+        response.status_code = 200
+        response.iter_content.return_value = [json.dumps({
+            "ok": True, "statusCode": 200,
+            "markdown": "## FB0A49\nStammdaten\nBasiswert Gold\nKnock-Out-Barriere 4151",
+            "json": {"isin": "DE000FG77FN1"}
+        }).encode()]
+        with patch.dict(os.environ, {"BROWSERLESS_API_TOKEN": "private",
+                                     "BOB_BROWSERLESS_PUBLIC_RESEARCH": "1",
+                                     "BOB_BROWSERLESS_FREE_ACCOUNT_CONFIRMED": "1"}), \
+                patch.object(b.requests, "post") as post:
+            post.return_value.__enter__.return_value = response
+            result = b.extract("DE000FB0A490", now=self.now)
+        self.assertEqual(result["state"], "extraction-not-proven")
+        self.assertFalse(result["eligible"])
+        self.assertEqual(result["fields"], {})
+
     def test_exception_is_redacted(self):
         with patch.dict(os.environ, {"BROWSERLESS_API_TOKEN": "private",
                                      "BOB_BROWSERLESS_PUBLIC_RESEARCH": "1",
