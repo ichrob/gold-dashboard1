@@ -8,9 +8,14 @@ def positive(v):
 
 
 def capture_selection(selection, choice, now):
-    # Freeze exactly the ranked shortlist used by this entry; never all raw input.
+    # Freeze the bounded ranked candidate universe actually considered for a
+    # PAPER entry. The visible top three stay unchanged. Legacy selections
+    # without a separate paperCandidates list retain their original top three.
+    pool = selection.get('paperCandidates')
+    if not isinstance(pool,list):
+        pool = selection.get('choices') or []
     rows=[{k:item.get(k) for k in ('isin','direction','score','source','at','indicative','estimated')}
-          for item in (selection.get('choices') or [])[:3] if isinstance(item,dict)]
+          for item in pool[:12] if isinstance(item,dict)]
     return dict(version=1,capturedAt=now,selectedIsin=choice.get('isin'),rankedShortlist=rows)
 
 
