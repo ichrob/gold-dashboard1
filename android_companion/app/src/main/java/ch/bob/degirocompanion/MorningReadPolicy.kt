@@ -574,6 +574,15 @@ internal object MorningReadPolicy {
                               resultOpened: Boolean = true): Action {
         val ordinary=detailDecision(nodes,target,false,keyboardReady,resultOpened)
         if(ordinary.kind in setOf(Kind.BACK,Kind.WAIT,Kind.BLOCK)) {
+            // After the Gold list scroll, a live WebView can expose the
+            // original Gold input before the category/row nodes settle.
+            // Reuse the same strictly validated, READ-ONLY Gold field for
+            // focus or one exact target ISIN replacement. No other input,
+            // result, K/V or order surface becomes actionable here.
+            postCaptureGoldSearchFocusIndex(nodes,setOf(target))?.let { index ->
+                val field=nodes[index]
+                return Action(if(field.focused && keyboardReady) Kind.QUERY else Kind.FOCUS,index)
+            }
             // When WebView has scrolled away the EditText entirely, reuse
             // the old read-only exact Markets search launcher from the
             // independently validated Gold list. Never target a card or K/V.
@@ -612,7 +621,12 @@ internal object MorningReadPolicy {
      * prove local capture scope, NEVER a broker list, quote or trade. The
      * caller must keep the keyboard/text untouched until server receipt. */
     fun postCaptureGoldSearchFocusIndex(nodes: List<Node>, captured: Set<String>): Int? {
-        if(captured.size!=10 || captured.any { !SeriesEvidence.validIsin(it) } ||
+        // Post-capture FOCUS is not list verification: Android's virtualized
+        // Gold view can expose fewer than ten of the captured row identities.
+        // Only exact, non-empty, distinct, valid observed ISINs may authorize
+        // re-focusing a separately proven Gold search field. Server 10/10
+        // validation and the quarantined 9/10 research gate stay unchanged.
+        if(captured.size !in 1..10 || captured.any { !SeriesEvidence.validIsin(it) } ||
             nodes.isEmpty() || nodes.size>500 || genericTurboDirectory(nodes)) return null
         when(protection(nodes)) {
             null -> Unit
