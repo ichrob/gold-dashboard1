@@ -630,6 +630,7 @@ class MorningReadPolicyTest {
             safe.map { if(it==launcher)it.copy(clickable=false) else it },
             safe.map { if(it==launcher)it.copy(row="Order platzieren\\nKauf") else it },
             safe.map { if(it==launcher)it.copy(parent=3) else it },
+            safe.map { if(it==search)it.copy(parent=3) else it },
             safe+MorningReadPolicy.Node("Suche",clickable=true),
             safe.filterNot { it.text=="Hebelprodukte" },
             safe.filterNot { it.text=="Top Ergebnisse" },
