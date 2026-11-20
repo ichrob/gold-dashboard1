@@ -42,7 +42,16 @@ ARM_CONFIG={
   **cfg}
  for family in FAMILIES for option,cfg in OPTIONS.items()
 }
-NOTE=("Nur 21 prospektive Original-Gold-Spot-Schattenkonten zu je 1.000 EUR "
+# One independent additional research arm. The 21 prespecified older
+# strategies and all 15 active EUR portfolios keep their unchanged gates.
+# This arm answers whether a new, fully CLOSED original 5m setup can be
+# evaluated despite an expired, unrelated 15m main-signal age.
+ARM_CONFIG["trend-reentry:closed5m-independent"]={
+    **ARM_CONFIG["trend-reentry:control"],
+    "option":"closed5m-independent",
+    "independent5m":True,
+}
+NOTE=("Nur 22 prospektive Original-Gold-Spot-Schattenkonten zu je 1.000 EUR "
       "Modellreferenzkapital und drei rechnerischen Hebelszenarien; kein Echtgeld "
       "oder KO-/DEGIRO-Nettoertrag. Keine rückwirkenden Fills, unbekannte "
       "Quellenlücken bleiben unbepreist. Beispielkosten: 0,6 % auf "
@@ -167,12 +176,27 @@ def gate(sig,market,price,now,cfg):
         return "session-closed"
     if price["at"] < sig["closedAt"]:
         return "spot-before-closed-signal"
-    if not 0<=now-(market.get("analysisBarAt") or 0)-15*MINUTE<=cfg["ageMinutes"]*MINUTE:
+    frames=((market.get("dmi") or {}).get("frames") or {})
+    fif=frames.get("15m") or {};hour=frames.get("1h") or {}
+    if cfg.get("independent5m") is True:
+        # Do not borrow or refresh a stale main signal. This separate model
+        # accepts only its OWN new, closed original 5m impulse plus current
+        # 15m/1h DMI clocks. Missing clocks are unknown, never permission.
+        closed=sig.get("closedAt")
+        if (not num(closed) or not 0<=now-closed<=90000
+                or price["at"]<closed):
+            return "independent-closed5m-not-fresh"
+        fifteen=fif.get("barAt");one_hour=hour.get("barAt")
+        if (not num(fifteen) or not num(one_hour)
+                or fifteen%(15*MINUTE)!=0 or one_hour%(60*MINUTE)!=0
+                or not 0<=now-(fifteen+15*MINUTE)<=30*MINUTE
+                or not 0<=now-(one_hour+60*MINUTE)<=2*60*MINUTE
+                or not 0<=now-price["at"]<=60000):
+            return "independent-mtf-source-not-fresh"
+    elif not 0<=now-(market.get("analysisBarAt") or 0)-15*MINUTE<=cfg["ageMinutes"]*MINUTE:
         return "prior-main-signal-age"
     if abs(price["price"]-sig["close"])>cfg["driftAtr"]*sig["atr"]:
         return "spot-close-drift"
-    frames=((market.get("dmi") or {}).get("frames") or {})
-    fif=frames.get("15m") or {};hour=frames.get("1h") or {}
     adx=fif.get("adx")
     if not num(adx) or not num(hour.get("adx")):
         return "original-adx-unavailable"
