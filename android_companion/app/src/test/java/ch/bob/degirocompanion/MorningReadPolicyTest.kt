@@ -614,6 +614,7 @@ class MorningReadPolicyTest {
         val action=MorningReadPolicy.localResearchDecision(
             safe,target,keyboardReady=false,resultOpened=false)
         assertEquals(MorningReadPolicy.Kind.SEARCH,action.kind)
+        assertEquals("GOLD_GLOBAL_LAUNCHER_SEARCH",action.code)
         assertEquals(safe.lastIndex,action.index)
         assertEquals(MorningReadPolicy.Kind.WAIT,
             MorningReadPolicy.localResearchDecision(
