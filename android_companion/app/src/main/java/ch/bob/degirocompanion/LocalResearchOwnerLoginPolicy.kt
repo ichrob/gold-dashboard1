@@ -12,7 +12,7 @@ internal object LocalResearchOwnerLoginPolicy {
     fun visible(nodes: List<MorningReadPolicy.Node>): Boolean {
         if(nodes.isEmpty() || nodes.size>500)return false
         val labels=nodes.flatMap { listOf(it.text,it.description,it.hint) }
-            .map(String::trim).filter(String::isNotEmpty)
+            .map { it.trim() }.filter { it.isNotEmpty() }
         if(labels.any(protectedOrder::matches))return false
         if(labels.any(strongPin::matches))return true
         val login=labels.any(entry::matches)
