@@ -52,4 +52,33 @@ class ProvisionalIsinReadPolicyTest {
         assertNull(decision(images=5))
         assertNull(decision(conflicts=1))
     }
+
+    @Test fun memoryExhaustionAllowsOnlyFreshBatchTenLocallyObservedIdentityReads() {
+        val batch="a".repeat(32)
+        fun memory(
+            ids: List<String> = local,
+            receiptBatch: String = batch,
+            stage: String = "read-failed",
+            error: String = "MemoryError",
+            images: Int = 3,
+            resumed: Boolean = false
+        ) = ProvisionalIsinReadPolicy.memoryCandidates(
+            ids,batch,receiptBatch,stage,error,images,resumed)
+        assertEquals(local,memory())
+        assertNotSame(local,memory())
+        assertEquals(local,memory(images=4))
+        assertNull(memory(ids=local.take(9)))
+        assertNull(memory(ids=local.dropLast(1)+local.first()))
+        assertNull(memory(ids=local.dropLast(1)+"INVALID"))
+        assertNull(memory(receiptBatch="b".repeat(32)))
+        assertNull(memory(stage="waiting-memory"))
+        assertNull(memory(stage="synced"))
+        assertNull(memory(error="ListVerificationError"))
+        assertNull(memory(error="OCR_MEMORY_WAIT_EXHAUSTED"))
+        assertNull(memory(images=2))
+        assertNull(memory(images=5))
+        assertNull(memory(resumed=true))
+        assertNull(ProvisionalIsinReadPolicy.memoryCandidates(
+            local,"invalid",batch,"read-failed","MemoryError",3,false))
+    }
 }
