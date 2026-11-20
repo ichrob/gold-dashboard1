@@ -118,7 +118,7 @@ class AndroidStableReleaseTests(unittest.TestCase):
         return_scroll = service.split('private fun returnToSearchWhileImporting(', 1)[1].split(
             'private fun deliverMorningList(', 1)[0]
         for guard in [
-            'attempt>=4', 'MorningListDelivery.waiting', 'PhoneRemote.active()',
+            'attempt>=6', 'MorningListDelivery.waiting', 'PhoneRemote.active()',
             'MorningReadRun.running', 'GoldSearchRun.running', 'isKeyguardLocked',
             'root.windowId!=expectedWindow', 'ProductScreenEvidence.PACKAGE',
             'MorningReadPolicy.listReturnScrollTarget(descriptions,backward,captured)',
@@ -127,6 +127,24 @@ class AndroidStableReleaseTests(unittest.TestCase):
         ]:
             self.assertIn(guard, return_scroll)
         self.assertEqual(return_scroll.count('performAction('), 1)
+        # The second Samsung tap is the missing post-capture transition:
+        # only the verified Gold input, never an unfiltered catalog, card,
+        # order control, PIN or guessed coordinate.
+        for guard in [
+            'MorningReadPolicy.postCaptureGoldSearchFocusIndex(',
+            'postListCaptured=captured', 'if(keyboardVisible())return',
+            'postListGestureAttempted=true',
+            'ProductReadDiagnostics.Outcome.POST_LIST_SEARCH_TAP_SENT',
+            'ProductReadDiagnostics.Outcome.POST_LIST_SEARCH_FOCUS_SENT',
+            'if(descriptions.any { it.editable',
+        ]:
+            self.assertIn(guard, return_scroll)
+        self.assertIn('postListCaptured: Set<String>? = null', service)
+        self.assertIn('MorningListDelivery.waiting && !keyboardVisible()', service)
+        self.assertIn('!MorningReadRun.running && !GoldSearchRun.running', service)
+        self.assertIn('postListCaptured.all(SeriesEvidence::validIsin)', service)
+        self.assertIn('MorningReadPolicy.postCaptureGoldSearchFocusIndex(', service)
+
 
         seek=service.split('A fresh run can begin on yesterday',1)[1].split('val proposed=',1)[0]
         for guard in ['listImages.length()==0','MorningReadPolicy.captureGoldList(descriptions,true)',
