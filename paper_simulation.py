@@ -749,6 +749,39 @@ def campaign_source_preview(control, bundle, market, now):
     return control.get('campaignEstimatePreview')
 
 
+def paper_entry_candidates(selection, blocked=()):
+    """Extend a paper-only shortlist with already vetted research candidates.
+
+    The public/handset Top 3 remain unchanged. Extra candidates come only from
+    the selector's existing bounded, non-indicative shortlist and must pass
+    every existing quote, KO, strategy, budget and risk check downstream.
+    Missing candidates or malformed evidence never become trade approval.
+    """
+    if not isinstance(selection, dict):
+        return []
+    blocked = set(blocked or ())
+    result, seen = [], set()
+    for key in ('choices', 'researchCandidates'):
+        rows = selection.get(key)
+        if not isinstance(rows, list):
+            continue
+        # The selector limits researchCandidates to twelve original candidates.
+        # Do not permit an unbounded or injected extra list into the ledger.
+        for candidate in rows[:12]:
+            if not isinstance(candidate, dict):
+                continue
+            isin = candidate.get('isin')
+            if not isinstance(isin, str) or not isin or isin in blocked or isin in seen:
+                continue
+            if key == 'researchCandidates' and (
+                    candidate.get('koGuardRequired') is not True
+                    or candidate.get('indicative') or candidate.get('estimated')):
+                continue
+            result.append(candidate)
+            seen.add(isin)
+    return result
+
+
 def ranked_entry_candidate(candidates, quotes, market, now, budget, cost_model=None,
                            require_ko=False):
     """Pick the first *usable* ranked paper candidate, not just the first KO-safe one.
@@ -887,7 +920,7 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
             plan=market.get('plan')
             excluded=control.get('koExcluded') or {}
             blocked=set(excluded.get('isins') or []) if excluded.get('day')==day else set()
-            candidates=[x for x in (selection.get('choices') or []) if x.get('isin') not in blocked]
+            candidates=paper_entry_candidates(selection, blocked)
             # Preserve ranking among eligible candidates, skipping stale,
             # unaffordable, direction-mismatched or unverified KO products.
             # A blocked first choice must not hide a valid lower-ranked one.
