@@ -174,11 +174,19 @@ class AndroidStableReleaseTests(unittest.TestCase):
             'productSearchWithoutLauncher(check)',
             'if(protection(clean)!=null) return null',
             'descendant(i,launcher)', 'canClick(n)',
-            'Action(Kind.SEARCH,searchButtons.single())',
+            'Action(Kind.SEARCH,',
+            'code="GOLD_GLOBAL_LAUNCHER_SEARCH"',
             'Action(Kind.WAIT,code="GOLD_SEARCH_REBUILDING")'
         ]:
             self.assertIn(guard, recovery)
         self.assertIn('isolatedGoldSearchAfterLauncher(nodes)?.let { return it }', policy)
+        # This exceptional search must use the existing overlay-verified
+        # bounded gesture, NEVER the ordinary direct ACTION_CLICK path.
+        self.assertIn('action.code=="GOLD_GLOBAL_LAUNCHER_SEARCH"', service)
+        self.assertIn('MorningReadRun.researchOnlyActive()) {', service)
+        self.assertIn('val tapped=tapRecognizedSearch(root.windowId)', service)
+        self.assertIn('LOCAL_RESEARCH_GLOBAL_SEARCH_TAP_REJECTED', service)
+        self.assertIn('!nestedInProduct(i)', recovery)
 
 
         seek=service.split('A fresh run can begin on yesterday',1)[1].split('val proposed=',1)[0]
