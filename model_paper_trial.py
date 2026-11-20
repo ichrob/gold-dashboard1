@@ -198,7 +198,13 @@ def evolve(control, market, bundle, audit, now):
         hit_stop = sign*(gold-position['goldStop'])<=0
         hit_target = sign*(gold-position['goldTarget'])>=0
         timed_out=now-position['enteredAt']>=MAX_HOLD_MS
-        if not (hit_ko or hit_stop or hit_target or timed_out):
+        # A confirmed opposite market direction is a MODEL exit opportunity,
+        # not a broker order. Require a genuinely newer original spot than
+        # entry; an old trend decision cannot manufacture a reversal fill.
+        opposite='SHORT' if position['direction']=='LONG' else 'LONG'
+        hit_reversal=(market.get('direction')==opposite and
+            timestamp(spots.get('spot_price_as_of'))>position['enteredAt'])
+        if not (hit_ko or hit_stop or hit_target or timed_out or hit_reversal):
             c.update(status='model-position-open',
                      reason='Modellposition offen; Original-Spot/FX frisch, Modellbewertung hypothetisch')
             return c
@@ -212,7 +218,9 @@ def evolve(control, market, bundle, audit, now):
         c['completed']+=1
         c['wins']+=int(outcome>0)
         c['losses']+=int(outcome<=0)
-        ending='model-ko' if hit_ko else 'model-stop' if hit_stop else 'model-target' if hit_target else 'model-time-limit'
+        ending=('model-ko' if hit_ko else 'model-stop' if hit_stop else
+                'model-target' if hit_target else 'model-time-limit' if timed_out
+                else 'model-reversal')
         record={k:position[k] for k in ('isin','currency','direction','enteredAt',
             'entryModelEur','goldEntry','goldStop','goldTarget','quantity')}
         record.update(status=ending,closedAt=now,modelExitEur=round(received,4),
