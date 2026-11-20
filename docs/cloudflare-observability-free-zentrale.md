@@ -181,3 +181,12 @@ Die bereits aktiven und kostenlosen zwei Fehler-/Usage-Abfragen bleiben
 unverändert; kein zusätzlicher Cron, kein Worker, keine Cloudflare-Automation,
 kein kostenpflichtiger Dienst, kein neues Secret.
 
+
+
+## Source-Maps: Live-Prüfung und offline CI-Gate (20.11.2026)
+
+Die Cloudflare-Live-Abfrage `GET /accounts/{account_id}/workers/workers/{worker_id}/versions/latest?include=modules,sourcemaps` ergab am 20.11.2026 für alle vier Worker **0 Module vom Typ `application/source-map`**. Dies ist ein tatsächlicher Live-Befund, nicht nur eine Vermutung aus den Wrangler-Konfigurationsdateien. Die Source Maps gelten daher **noch nicht als live hochgeladen**. Cloudflare veröffentlicht Source Maps beim Worker-Deployment/Version-Upload; das bloße Speichern von `upload_source_maps: true` löst keinen Upload aus. Die historische Scanner-Worker-Quelle ist weiterhin nicht als überprüfbares Wrangler-Manifest nachgewiesen.
+
+Die neue, ausschließlich lokale CI-Prüfung baut die **drei im Repository verwalteten** Worker mit Wrangler `4.158.0` per `deploy --dry-run --outdir`. `tools/cloudflare_source_map_check.py` verlangt für jeden Build mindestens eine gültige V3-Source-Map mit Quellbezug und Mapping-Daten. Nur Dateianzahl/Feststatus wird protokolliert, keine `sourcesContent` oder Secrets. Das ist **kein** Cloudflare-Deployment und benötigt weder API-Token noch zusätzliche Cloudflare-Worker, Cron-Jobs, Traces oder kostenpflichtige Funktionen.
+
+Vor einer echten Source-Map-Veröffentlichung müssen alle aktiven Worker-Versionen, Bindings und Secrets geprüft, Oracle-Freigaben `ENABLED=false`, `ALLOW_APPLY=false`, `PLAN_VERIFIED_ALWAYS_FREE=false` unverändert gehalten und die ursprüngliche Deploymentroute nachgewiesen werden. Automatisches Überschreiben bestehender Worker ohne diese Belege ist nicht erlaubt. Nach einem kontrollierten tatsächlichen Upload `versions/latest?include=modules,sourcemaps` erneut **lesend** prüfen; erst bei vorhandenem `application/source-map`-Modul `live=true` vermerken. Niemals absichtlich Produktionsfehler erzeugen, um Source Maps zu testen. Ein bestandenes CI-Gate beweist nur, dass sich valide Maps *erzeugen* lassen, nicht dass alle Source Maps auf Cloudflare vorhanden sind.
