@@ -577,9 +577,18 @@ internal object MorningReadPolicy {
             nodes.any { it.editable || it.containsInput || it.sensitive || it.password } ||
             genericTurboDirectory(nodes)) return null
         fun exact(value:String,label:String)=normalized(value).equals(label,true)
+        // Following the completed Gold-list capture Samsung often scrolls the
+        // search header out of the accessibility tree. Requiring Markets AND
+        // Top Ergebnisse AND a visible Gold row misclassified that genuine
+        // read-only search as PROTECTED_ORDER_CONFIRM. A distinct Gold context
+        // must still be present, but never manufacture an input or a target.
         if(nodes.count { exact(it.text,"Hebelprodukte") }!=1 ||
-            nodes.count { exact(it.text,"Top Ergebnisse") }!=1 ||
-            nodes.none { exact(it.text,"Märkte") }) return null
+            nodes.any { n -> normalized(n.text).lowercase() in setOf(
+                "kursdaten","produktdetails","orderdetails","orderübersicht",
+                "orderzusammenfassung","order bestätigen","confirm order") })
+            return null
+        val markets=nodes.any { exact(it.text,"Märkte") }
+        val topResults=nodes.count { exact(it.text,"Top Ergebnisse") }==1
         val product=nodes.any { n ->
             !n.editable && !n.containsInput &&
             Regex("(?iu)\\b(gold|xau)\\b").containsMatchIn(n.row) &&
@@ -587,7 +596,10 @@ internal object MorningReadPolicy {
                 .containsMatchIn(n.row) || unlimitedGoldRow(n.row)) &&
             ids.findAll(n.row.uppercase()).any { SeriesEvidence.validIsin(it.value) }
         }
-        if(!product) return null
+        // Top Ergebnisse+Hebelprodukte is sufficient for a passive rebuild
+        // wait; Markets+Hebelprodukte+an authentic Gold product is the
+        // equivalent virtualized list after header scrolling.
+        if(!topResults && !(markets && product)) return null
         // The verified ONE isolated leaf launcher is ignored only for
         // classification. This fake EditText is never used as an action
         // index or user input; the returned index must exist in the REAL UI.
@@ -624,7 +636,9 @@ internal object MorningReadPolicy {
         var ancestor=button.parent;var hops=0
         while(ancestor in nodes.indices && hops++<nodes.size) {
             val text=nodes[ancestor].text
+            val aggregate=nodes[ancestor].row
             if(ids.containsMatchIn(text.uppercase()) ||
+                ids.containsMatchIn(aggregate.uppercase()) ||
                 (Regex("(?iu)\\b(gold|xau)\\b").containsMatchIn(text) &&
                  Regex("(?iu)\\b(turbo|knock[ -]?out)\\b").containsMatchIn(text)))
                 return null
@@ -635,6 +649,7 @@ internal object MorningReadPolicy {
             while(p in nodes.indices && steps++<nodes.size) {
                 val title=nodes[p].text
                 if(ids.containsMatchIn(title.uppercase()) ||
+                    ids.containsMatchIn(nodes[p].row.uppercase()) ||
                     (Regex("(?iu)\\b(gold|xau)\\b").containsMatchIn(title) &&
                      Regex("(?iu)\\b(turbo|knock[ -]?out)\\b").containsMatchIn(title)))
                     return true
@@ -648,7 +663,10 @@ internal object MorningReadPolicy {
         val searchButtons=innermost(nodes,nodes.indices.filter { i ->
             val n=nodes[i]
             i!=launcher && !descendant(i,launcher) && !descendant(launcher,i) &&
-                !nestedInProduct(i) && canClick(n) && !n.editable && !n.containsInput &&
+                !nestedInProduct(i) && n.enabled &&
+                (canClick(n) ||
+                    normalized(n.text).equals("Mit Namen, ISIN oder Symbol suchen",true)) &&
+                !n.editable && !n.containsInput &&
                 !n.sensitive && !n.password &&
                 listOf(n.text,n.description,n.hint,n.row)
                     .filter(String::isNotBlank).let { labels ->
@@ -670,6 +688,9 @@ internal object MorningReadPolicy {
             }) return null
         return if(searchButtons.size==1) Action(Kind.SEARCH,
                 searchButtons.single(),code="GOLD_GLOBAL_LAUNCHER_SEARCH")
+            // Crucial: missing Search EditText is a bounded, read-only
+            // rebuilding state, NOT an order confirmation. No gesture,
+            // query, product tap or imported-list approval occurs on WAIT.
             else if(searchButtons.isEmpty()) Action(Kind.WAIT,code="GOLD_SEARCH_REBUILDING")
             else null
     }
