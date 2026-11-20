@@ -114,6 +114,41 @@ class ShortGoldScenarioTests(unittest.TestCase):
         blocked(lambda m,z,p: m["trendContext"].update(direction="LONG"),
                 "mtf-adx-not-confirmed")
 
+    def test_only_new_study_books_new_short_when_main_age_expired(self):
+        # Synthetic future observation, no retrospective backfill or order.
+        original=s.seed(NOW-1000)
+        preserved=copy.deepcopy(original)
+        m=market(direction="NEUTRAL",spot=103.)
+        m["analysisBarAt"]=NOW-50*s.MINUTE
+        m["trendContext"].update(direction="SHORT",intact=True)
+        m["dmi"]["frames"]["15m"].update(
+            direction="SHORT",barAt=(NOW//(15*s.MINUTE))*(15*s.MINUTE)-15*s.MINUTE)
+        m["dmi"]["frames"]["1h"].update(
+            direction="SHORT",barAt=(NOW//(60*s.MINUTE))*(60*s.MINUTE)-60*s.MINUTE)
+        m["analysisSnapshot"].update(e20=99.,e50=106.)
+        signals={"trend-reentry":sig(side="SHORT"),
+                 "breakout-retest":None,"false-breakout":None}
+        with (patch.object(candles,"minute_history",return_value=([{}]*120,None)),
+              patch.object(candles,"source",return_value=source()),
+              patch.object(s,"signals",return_value=(signals,None))):
+            result=s.advance(original,{},m,NOW)
+        self.assertEqual(original,preserved)
+        self.assertEqual(result["arms"]["trend-reentry:control"]["started"],0)
+        self.assertEqual(result["arms"]["trend-reentry:control"]["lastBlock"],
+                         "prior-main-signal-age")
+        arm=result["arms"]["trend-reentry:closed5m-independent"]
+        self.assertEqual(arm["started"],1)
+        self.assertEqual(arm["position"]["direction"],"SHORT")
+        self.assertFalse(arm["position"]["realOrders"])
+        self.assertFalse(arm["position"]["productReturnVerified"])
+        report=s.report(type("DB",(),{
+            "execute":lambda self,*args:self,
+            "fetchone":lambda self:(result,)})())
+        brief=__import__("bob_diagnostics").short_regime_brief(report)
+        names=[v["name"] for v in brief["variants"]]
+        self.assertIn("trend-reentry:closed5m-independent",names)
+        self.assertEqual(brief["configurationsReported"],66)
+
     def test_target_room_is_not_replaced_by_an_idealized_rr(self):
         p=source()
         z={**sig(),"targetAnchor":105.}
