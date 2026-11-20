@@ -45,6 +45,8 @@ CODES = {
     "smoke-main-failed": "GitHub-Live-Smoke-Prüfung fehlgeschlagen",
     "collection-main-failed": "GitHub-Datensammlungsprüfung fehlgeschlagen",
     "watchdog-main-failed": "GitHub-KI-Fehlerwächterlauf fehlgeschlagen",
+    "cloudflare-worker-error": "Cloudflare-Worker: belegte Laufzeitstörung",
+    "cloudflare-observability-coverage": "Cloudflare-Protokollüberwachung unvollständig oder unbekannt",
 }
 
 # Internal marker to avoid closing unresolved incidents on an unavailable
@@ -52,6 +54,9 @@ CODES = {
 PRODUCT_AUDIT_UNKNOWN = "_private-product-audit-unavailable"
 PRODUCT_CODES = frozenset(code for code in CODES if code.startswith("product-"))
 STUDY_CODES = frozenset(code for code in CODES if code.startswith("study-"))
+# Cloudflare is NOT a GitHub workflow event. These faults need separate
+# Cloudflare-side recovery evidence before any closure.
+CLOUDFLARE_CODES = frozenset(code for code in CODES if code.startswith("cloudflare-"))
 # These are verified by independent GitHub Actions evidence, not by a missing
 # /health code. Only separately evidenced GitHub recovery may close them.
 EXTERNAL_CODES = frozenset((
@@ -352,7 +357,7 @@ def sync_issue(codes, *, token, repo, at=None, requester=github_request,
     # Data-dependent research findings need prospective ORIGINAL evidence
     # before closure. An empty/stale/missing health projection cannot close them.
     product_titles = {issue_title(code) for code in
-                      PRODUCT_CODES | STUDY_CODES | EXTERNAL_CODES
+                      PRODUCT_CODES | STUDY_CODES | EXTERNAL_CODES | CLOUDFLARE_CODES
                       | {"trade-setup-stalled", "screenshot-import-failed"}}
     actions = []
 
