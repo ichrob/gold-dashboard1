@@ -1,9 +1,47 @@
 // Bob Oracle A1: guarded 30-minute retry independent of Cloud Shell.
 // No public execution endpoint; all OCI secrets belong in Worker secrets.
 const HOST='resourcemanager.eu-zurich-1.oraclecloud.com';
-const ROOT='https://'+HOST;
+const COMPUTE_HOST='iaas.eu-zurich-1.oraclecloud.com';
 const CAPACITY=/out.of.host.capacity|outofhostcapacity|no.capacity.for.shape|shape.*capacity.*not.available|capacity.*not.available/i;
 const ACTIVE=new Set(['ACCEPTED','IN_PROGRESS','CANCELING','WAITING']);
+const REVIEWED_IMAGE='ocid1.image.oc1.eu-zurich-1.aaaaaaaadk22jaklt42vd4entg5pfsn5jfwbakrs7nsrawqvv5ya7iefhgiq';
+const single=x=>Array.isArray(x)&&x.length===1?x[0]:null;
+// A pre-existing successful network Apply does not certify a safe VM plan.
+// The only permitted change is creating the previously reviewed private A1.
+function verifyPlan(plan,state){
+  if(!plan||!Array.isArray(plan.resource_changes)||!state||!Array.isArray(state.resources))return false;
+  const find=(type,name)=>{
+    const r=state.resources.filter(x=>x.mode==='managed'&&x.type===type&&x.name===name);
+    return r.length===1?single(r[0].instances)?.attributes:null;
+  };
+  const vcn=find('oci_core_vcn','bob');
+  const subnet=find('oci_core_subnet','test');
+  const acl=find('oci_core_security_list','isolated');
+  if(!vcn||!subnet||!acl||subnet.prohibit_public_ip_on_vnic!==true||
+     subnet.vcn_id!==vcn.id||acl.vcn_id!==vcn.id||subnet.compartment_id!==vcn.compartment_id||
+     !Array.isArray(acl.ingress_security_rules)||acl.ingress_security_rules.length!==0||
+     !Array.isArray(acl.egress_security_rules)||acl.egress_security_rules.length!==0)return false;
+  const altered=plan.resource_changes.filter(r=>{
+    const a=r?.change?.actions;
+    return !(Array.isArray(a)&&a.length===1&&(a[0]==='no-op'||a[0]==='read'));
+  });
+  if(altered.length!==1)return false;
+  const r=altered[0];
+  if(r.address!=='oci_core_instance.bob'||r.mode!=='managed'||r.type!=='oci_core_instance'||
+     JSON.stringify(r.change?.actions)!=='["create"]')return false;
+  const a=r.change?.after;
+  if(!a||a.display_name!=='bob-ocr-zurich'||a.compartment_id!==subnet.compartment_id||
+     typeof a.availability_domain!=='string'||
+     !a.availability_domain.toUpperCase().endsWith(':EU-ZURICH-1-AD-1')||
+     a.shape!=='VM.Standard.A1.Flex')return false;
+  const shape=single(a.shape_config),src=single(a.source_details),nic=single(a.create_vnic_details),opts=single(a.instance_options);
+  return Boolean(shape&&src&&nic&&opts&&Number(shape.ocpus)===1&&Number(shape.memory_in_gbs)===4&&
+    src.source_type==='image'&&src.source_id===REVIEWED_IMAGE&&
+    Number(src.boot_volume_size_in_gbs)===50&&Number(src.boot_volume_vpus_per_gb)===10&&
+    nic.subnet_id===subnet.id&&nic.assign_public_ip===false&&
+    opts.are_legacy_imds_endpoints_disabled===true);
+}
+
 const trim=x=>typeof x==='string'?x.trim():'';
 function isOcid(v,t){return new RegExp('^ocid1\\.'+t+'\\.oc1[.a-z0-9_-]*$','i').test(trim(v));}
 function validate(e){
@@ -25,12 +63,12 @@ async function key(env){
   cachedKey=await crypto.subtle.importKey('pkcs8',unb64(data),{name:'RSASSA-PKCS1-v1_5',hash:'SHA-256'},false,['sign']);
   return cachedKey;
 }
-async function request(env,method,path,obj,extra={}){
+async function request(env,method,path,obj,extra={},host=HOST){
   const date=new Date().toUTCString();
   const body=obj===undefined?undefined:JSON.stringify(obj);
   const headers={'x-date':date};
   const signed=['(request-target)','host','x-date'];
-  const lines=['(request-target): '+method.toLowerCase()+' '+path,'host: '+HOST,'x-date: '+date];
+  const lines=['(request-target): '+method.toLowerCase()+' '+path,'host: '+host,'x-date: '+date];
   if(body!==undefined){
     const bytes=new TextEncoder().encode(body);
     const sha=b64(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)));
@@ -44,7 +82,7 @@ async function request(env,method,path,obj,extra={}){
   const id=[env.OCI_TENANCY_OCID,env.OCI_USER_OCID,env.OCI_API_FINGERPRINT].map(trim).join('/');
   headers.authorization='Signature version="1",keyId="'+id+'",algorithm="rsa-sha256",headers="'+signed.join(' ')+'",signature="'+sig+'"';
   Object.assign(headers,extra);
-  const r=await fetch(ROOT+path,{method,headers,body,redirect:'error'});
+  const r=await fetch('https://'+host+path,{method,headers,body,redirect:'error'});
   if(!r.ok)return {ok:false,status:r.status};
   const type=r.headers.get('content-type')||'';
   return {ok:true,status:r.status,data:type.includes('json')?await r.json():await r.text(),next:r.headers.get('opc-next-page')};
@@ -61,6 +99,22 @@ async function listJobs(env){
   }
   return {error:'job_list_too_long'};
 }
+// Check OCI Compute too; Terraform state can omit an externally created VM.
+// Any unreadable list or existing active A1 in the dedicated BobOCR compartment
+// stops provisioning, so a historical Shell detection cannot be ignored.
+async function inspectCompute(env,compartmentId){
+  if(!isOcid(compartmentId,'compartment'))return {status:'compute_compartment_invalid'};
+  let page='';
+  for(let i=0;i<20;i++){
+    const path='/20160918/instances?compartmentId='+encodeURIComponent(compartmentId)+'&limit=100'+(page?'&page='+encodeURIComponent(page):'');
+    const res=await request(env,'GET',path,undefined,{},COMPUTE_HOST);
+    if(!res.ok||!Array.isArray(res.data))return {status:'compute_list_unavailable',http:res.status};
+    if(res.data.some(x=>String(x.lifecycleState||'').toUpperCase()!=='TERMINATED'&&(x.shape==='VM.Standard.A1.Flex'||x.displayName==='bob-ocr-zurich')))return {status:'compute_instance_present'};
+    if(!res.next)return {status:'compute_instance_absent'};
+    page=res.next;
+  }
+  return {status:'compute_list_incomplete'};
+}
 // OCI retry tokens are idempotent for 24h. A stable token for the same failed
 // Apply and reviewed plan prevents overlapping Cloudflare runs creating two jobs.
 async function retryToken(failedJobId,planJobId){
@@ -76,7 +130,22 @@ async function run(env){
   const jobs=listing.jobs;
   if(jobs.some(j=>ACTIVE.has(state(j))))return {status:'job_in_progress'};
   const applies=jobs.filter(j=>String(j.operation||j.jobOperationDetails?.operation||'').toUpperCase()==='APPLY');
-  if(applies.some(j=>state(j)==='SUCCEEDED'))return {status:'already_succeeded'};
+  // An older successful Apply may only have created VCN/subnet/security resources.
+  // Terraform state, not the historical existence of a successful job, decides
+  // whether a managed compute instance already exists. Missing state fails closed.
+  const snapshot=await request(env,'GET','/20180917/stacks/'+encodeURIComponent(trim(env.OCI_STACK_OCID))+'/tfState');
+  if(!snapshot.ok)return {status:'state_unavailable',http:snapshot.status};
+  let tfState=snapshot.data;
+  try{if(typeof tfState==='string')tfState=JSON.parse(tfState);}
+  catch{return {status:'state_invalid'};}
+  if(!tfState||!Array.isArray(tfState.resources))return {status:'state_invalid'};
+  const instanceResources=tfState.resources.filter(x=>x.mode==='managed'&&x.type==='oci_core_instance');
+  if(instanceResources.some(x=>!Array.isArray(x.instances)))return {status:'state_invalid'};
+  if(instanceResources.some(x=>x.instances.length>0))return {status:'instance_present'};
+  const subnets=tfState.resources.filter(x=>x.mode==='managed'&&x.type==='oci_core_subnet'&&x.name==='test');
+  if(subnets.length!==1||!Array.isArray(subnets[0].instances)||subnets[0].instances.length!==1)return {status:'state_invalid'};
+  const observed=await inspectCompute(env,subnets[0].instances[0]?.attributes?.compartment_id);
+  if(observed.status!=='compute_instance_absent')return observed;
   applies.sort((a,b)=>new Date(b.timeCreated||0)-new Date(a.timeCreated||0));
   const last=applies[0];
   if(!last)return {status:'no_previous_apply'};
@@ -92,6 +161,14 @@ async function run(env){
   if(!CAPACITY.test(log.data.slice(-150000)))return {status:'not_a_capacity_failure'};
   const plan=await request(env,'GET','/20180917/jobs/'+encodeURIComponent(trim(env.OCI_PLAN_JOB_OCID)));
   if(!plan.ok||plan.data?.operation!=='PLAN'||plan.data?.lifecycleState!=='SUCCEEDED'||plan.data?.stackId!==trim(env.OCI_STACK_OCID))return {status:'plan_not_valid'};
+  // Oracle returns a downloadable Terraform JSON plan stream. Never trust a
+  // completed PLAN status alone, especially if it predates network creation.
+  const planFile=await request(env,'GET','/20180917/jobs/'+encodeURIComponent(trim(env.OCI_PLAN_JOB_OCID))+'/tfPlan?tfPlanFormat=JSON');
+  if(!planFile.ok)return {status:'plan_content_unavailable',http:planFile.status};
+  let content=planFile.data;
+  try{if(typeof content==='string')content=JSON.parse(content);}
+  catch{return {status:'plan_content_invalid'};}
+  if(!verifyPlan(content,tfState))return {status:'plan_not_allowlisted'};
   const details={stackId:trim(env.OCI_STACK_OCID),displayName:'Bob A1 capacity retry',jobOperationDetails:{operation:'APPLY',executionPlanStrategy:'FROM_PLAN_JOB_ID',executionPlanJobId:trim(env.OCI_PLAN_JOB_OCID)}};
   const created=await request(env,'POST','/20180917/jobs',details,{'opc-retry-token':await retryToken(last.id,trim(env.OCI_PLAN_JOB_OCID))});
   if(!created.ok)return {status:'apply_rejected',http:created.status};
@@ -101,4 +178,4 @@ export default {
   async fetch(){return new Response('Not found',{status:404});},
   async scheduled(event,env,ctx){ctx.waitUntil(run(env).then(x=>console.log('bob_oracle_a1',JSON.stringify(x))).catch(()=>console.error('bob_oracle_a1','request_or_key_failed')));}
 };
-export {validate,run,retryToken};
+export {validate,run,retryToken,verifyPlan,inspectCompute};
