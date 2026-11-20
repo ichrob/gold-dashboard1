@@ -14,7 +14,8 @@
 - Der Erfolg der damaligen Emulator-/Mocktests **war keine reale Broker-Ausführung**.
 - In dieser Änderung wurden nur die bestehenden reinen Kotlin-Dateien `StopLossPrefillPolicy.kt` und `StopLossOfflineSimulation.kt` sowie ihre JVM-Tests aus PR #1790 übernommen.
 - Sie prüfen offline `BOB-STOP/1`, gültige EUR-ISIN, Stoppreis in Cent, positive Stückzahl, Ablaufzeit, Verkaufseite, Stop-Loss-Ordertyp, exakte Eingabefeldzuordnung und die anschließende Wertkontrolle. Negative Fälle: falsche ISIN, Kaufseite, doppelte Eingabefelder, geschützte Anmeldemaske.
-- **Nicht** übernommen: `StopLossPrefillExecutor.kt`, `StopLossPrefillSession.kt`, `StopLossPrefillActivity.kt`, Mock-Order-Screen als App-Aktivität, Manifest-Berechtigungen oder der Service-Eingabepfad. Die Offline-Simulation ist kein verfügbarer Fernbefehl und darf keine DEGIRO-Order vorbereiten, absenden oder ändern. PR #1790 bleibt als separat überprüfbarer Entwurf offen.
+- **Ebenfalls übernommen, aber strikt offline:** `StopLossSimulationActivity.kt` und `StopLossMockOrderActivity.kt` plus der bereits bestehende Emulator-UI-Test. Beide sind ausdrücklich `android:exported="false"`, werden nur durch einen eigenen Knopf **Stop-Loss & Stückzahl üben · nur Offline-Simulation** in Bob Handy geöffnet und greifen ausschließlich auf die lokalen Test-Views zu.
+- **Nicht** übernommen: `StopLossPrefillExecutor.kt`, `StopLossPrefillSession.kt`, `StopLossPrefillActivity.kt`, neue Android-Berechtigungen oder der Service-Eingabepfad. Der Mock-Screen ist ein lokales Test-Activity, **keine** echte DEGIRO-Oberfläche. Die Offline-Simulation ist kein verfügbarer Fernbefehl und darf keine DEGIRO-Order vorbereiten, absenden oder ändern. PR #1790 bleibt als separater, nicht freigegebener Live-Broker-Adapter offen.
 
 ## Abnahme
 
