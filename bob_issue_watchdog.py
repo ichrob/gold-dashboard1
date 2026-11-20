@@ -45,6 +45,8 @@ CODES = {
     "smoke-main-failed": "GitHub-Live-Smoke-Prüfung fehlgeschlagen",
     "collection-main-failed": "GitHub-Datensammlungsprüfung fehlgeschlagen",
     "watchdog-main-failed": "GitHub-KI-Fehlerwächterlauf fehlgeschlagen",
+    "cloudflare-worker-error": "Cloudflare-Worker: belegte Laufzeitstörung",
+    "cloudflare-observability-coverage": "Cloudflare-Protokollüberwachung unvollständig oder unbekannt",
 }
 
 # Internal marker to avoid closing unresolved incidents on an unavailable
@@ -57,6 +59,7 @@ STUDY_CODES = frozenset(code for code in CODES if code.startswith("study-"))
 EXTERNAL_CODES = frozenset((
     "ci-main-failed", "smoke-main-failed",
     "collection-main-failed", "watchdog-main-failed",
+    "cloudflare-worker-error", "cloudflare-observability-coverage",
 ))
 STUDY_SCOPE = "bob-original-study-watchdog-v1"
 PRODUCT_CONFIRMATION_SECONDS = 120
