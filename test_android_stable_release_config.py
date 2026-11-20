@@ -185,6 +185,7 @@ class AndroidStableReleaseTests(unittest.TestCase):
         self.assertIn('localResearchWaitTicket=""',service)
         self.assertIn('clearLocalResearchWait()\n            ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LOCAL_RESEARCH_SEARCH_READY)',service)
         self.assertIn('ownerLoginTouchAllowed(foreground)',service)
+        self.assertIn('return observation("LOCAL_RESEARCH_OWNER_LOGIN_REQUIRED")',service)
         self.assertIn('if(touchesProduct && !ownerSigningIn)',service)
         self.assertNotIn('node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,args)',bridge)
         auth_policy = (ROOT / "android_companion/app/src/main/java/ch/bob/degirocompanion/LocalResearchOwnerLoginPolicy.kt").read_text()
