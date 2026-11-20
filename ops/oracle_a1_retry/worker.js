@@ -76,7 +76,18 @@ async function run(env){
   const jobs=listing.jobs;
   if(jobs.some(j=>ACTIVE.has(state(j))))return {status:'job_in_progress'};
   const applies=jobs.filter(j=>String(j.operation||j.jobOperationDetails?.operation||'').toUpperCase()==='APPLY');
-  if(applies.some(j=>state(j)==='SUCCEEDED'))return {status:'already_succeeded'};
+  // An older successful Apply may only have created VCN/subnet/security resources.
+  // Terraform state, not the historical existence of a successful job, decides
+  // whether a managed compute instance already exists. Missing state fails closed.
+  const snapshot=await request(env,'GET','/20180917/stacks/'+encodeURIComponent(trim(env.OCI_STACK_OCID))+'/tfState');
+  if(!snapshot.ok)return {status:'state_unavailable',http:snapshot.status};
+  let tfState=snapshot.data;
+  try{if(typeof tfState==='string')tfState=JSON.parse(tfState);}
+  catch{return {status:'state_invalid'};}
+  if(!tfState||!Array.isArray(tfState.resources))return {status:'state_invalid'};
+  const instanceResources=tfState.resources.filter(x=>x.mode==='managed'&&x.type==='oci_core_instance');
+  if(instanceResources.some(x=>!Array.isArray(x.instances)))return {status:'state_invalid'};
+  if(instanceResources.some(x=>x.instances.length>0))return {status:'instance_present'};
   applies.sort((a,b)=>new Date(b.timeCreated||0)-new Date(a.timeCreated||0));
   const last=applies[0];
   if(!last)return {status:'no_previous_apply'};
