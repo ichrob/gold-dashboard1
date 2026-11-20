@@ -759,6 +759,52 @@ class MorningReadPolicyTest {
             MorningReadPolicy.Node("V",clickable=true))
     }
 
+    @Test fun headerOnlyAfterScrollingBackAllowsOnlyExactGoldSearchField() {
+        val target="DE000FD0S0G4"
+        val field=MorningReadPolicy.Node("Gold",id="search-input",
+            editable=true,focused=false,hint="Mit Namen, ISIN oder Symbol suchen")
+        val header=listOf(field,
+            MorningReadPolicy.Node("Hebelprodukte",selected=true),
+            MorningReadPolicy.Node("Top Ergebnisse"))
+        // No currently visible product rows. They were safely captured
+        // before Bob scrolled to the search header while OCR was pending.
+        assertEquals(MorningReadPolicy.Kind.FOCUS,
+            MorningReadPolicy.localResearchDecision(header,target,
+                keyboardReady=false,resultOpened=false).kind)
+        assertEquals(MorningReadPolicy.Kind.QUERY,
+            MorningReadPolicy.localResearchDecision(
+                header.mapIndexed { i,n -> if(i==0)n.copy(focused=true) else n },
+                target,keyboardReady=true,resultOpened=false).kind)
+        val withLauncher=header+MorningReadPolicy.Node("Order platzieren",
+            clickable=true,clickAction=true)
+        assertEquals(MorningReadPolicy.Kind.FOCUS,
+            MorningReadPolicy.localResearchDecision(withLauncher,target,
+                keyboardReady=false,resultOpened=false).kind)
+        for(bad in listOf(
+            MorningReadPolicy.Node("Order bestätigen"),
+            MorningReadPolicy.Node("Limitpreis"),
+            MorningReadPolicy.Node("Passwort",password=true),
+            MorningReadPolicy.Node("Stückzahl",editable=true),
+            MorningReadPolicy.Node("",sensitive=true))) {
+            assertEquals(MorningReadPolicy.Kind.BLOCK,
+                MorningReadPolicy.localResearchDecision(header+bad,target).kind)
+        }
+        assertNotEquals(MorningReadPolicy.Kind.QUERY,
+            MorningReadPolicy.localResearchDecision(
+                header.mapIndexed { i,n -> if(i==0)n.copy(id="",hint="") else n },
+                target,keyboardReady=true,resultOpened=false).kind)
+        assertNotEquals(MorningReadPolicy.Kind.QUERY,
+            MorningReadPolicy.localResearchDecision(header.filterNot {
+                it.text=="Hebelprodukte"
+            },target,keyboardReady=true,resultOpened=false).kind)
+        assertNotEquals(MorningReadPolicy.Kind.QUERY,
+            MorningReadPolicy.localResearchDecision(header.filterNot {
+                it.text=="Top Ergebnisse"
+            }.mapIndexed { i,n ->
+                if(i==1)n.copy(selected=false) else n
+            },target,keyboardReady=true,resultOpened=false).kind)
+    }
+
     @Test fun quarantinedResearchCanFocusGoldOnVerifiedPreviewOnly() {
         val preview=screenshotGoldTopResults()
         val target="DE000FD0S0G4"

@@ -573,9 +573,30 @@ internal object MorningReadPolicy {
                               keyboardReady: Boolean = true,
                               resultOpened: Boolean = true): Action {
         val ordinary=detailDecision(nodes,target,false,keyboardReady,resultOpened)
+        if(ordinary.kind in setOf(Kind.BACK,Kind.WAIT,Kind.BLOCK)) {
+            // When WebView has scrolled away the EditText entirely, reuse
+            // the old read-only exact Markets search launcher from the
+            // independently validated Gold list. Never target a card or K/V.
+            importedListSearch(nodes)?.let { return it }
+        }
         if(ordinary.kind != Kind.BLOCK && ordinary.kind != Kind.WAIT)return ordinary
-        if(!SeriesEvidence.validIsin(target) || genericTurboDirectory(nodes) ||
-            captureGoldList(nodes,true).kind!=Kind.COLLECT)return ordinary
+        // Samsung virtualizes product rows after the existing reader
+        // scrolls BACK to the Gold search header. Requiring COLLECT here
+        // incorrectly demands product rows that have already scrolled away.
+        // Only authorize the *search input* on a read-only Gold preview with
+        // independently recognizable Gold text, leverage category and
+        // exactly one original search field; NEVER a product result or order.
+        if(!SeriesEvidence.validIsin(target) || nodes.isEmpty() || nodes.size>500 ||
+            genericTurboDirectory(nodes))return ordinary
+        val protectionCause=protection(nodes)
+        if(protectionCause!=null && !(
+            protectionCause=="PROTECTED_ORDER_CONFIRM" &&
+            productSearchWithoutLauncher(nodes)!=null))return ordinary
+        val leverage=nodes.filter { normalized(it.text).equals("Hebelprodukte",true) }
+        if(leverage.size!=1 ||
+            !(leverage.single().selected || nodes.any {
+                normalized(it.text).equals("Top Ergebnisse",true)
+            }))return ordinary
         val inputs=nodes.indices.filter { nodes[it].editable }
         if(inputs.size!=1)return ordinary
         val index=inputs.single()
