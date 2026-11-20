@@ -596,6 +596,53 @@ class MorningReadPolicyTest {
         assertEquals("RESULT_MISSING",MorningReadPolicy.decide(view,target).code)
         assertEquals(4,MorningReadPolicy.resultTapIndex(view,target))
     }
+    @Test fun passiveResearchHandoffOnlyWaitsOnStandaloneLauncherWithNoInput() {
+        val page=listOf(
+            MorningReadPolicy.Node("Märkte"),
+            MorningReadPolicy.Node("Hebelprodukte"),
+            MorningReadPolicy.Node("Top Ergebnisse"),
+            MorningReadPolicy.Node("Order platzieren",clickable=true,
+                row="Order platzieren"))
+        assertTrue(MorningReadPolicy.passiveGoldSearchRebuild(page))
+        // This classifies a transient view only; it never returns an Action
+        // containing a tap, input, order or product index.
+        assertFalse(MorningReadPolicy.passiveGoldSearchRebuild(
+            page+MorningReadPolicy.Node("Gold",id="search-input",
+                editable=true,hint="Mit Namen, ISIN oder Symbol suchen")))
+        assertFalse(MorningReadPolicy.passiveGoldSearchRebuild(
+            page+MorningReadPolicy.Node("",containsInput=true)))
+        for(n in listOf(
+            MorningReadPolicy.Node("Order bestätigen"),
+            MorningReadPolicy.Node("Orderart"),
+            MorningReadPolicy.Node("Limitpreis"),
+            MorningReadPolicy.Node("Stückzahl"),
+            MorningReadPolicy.Node("Orderdetails"),
+            MorningReadPolicy.Node("Kursdaten"),
+            MorningReadPolicy.Node("Anmelden"),
+            MorningReadPolicy.Node("Passwort",password=true),
+            MorningReadPolicy.Node("",sensitive=true),
+            MorningReadPolicy.Node("",row="Order bestätigen"),
+            MorningReadPolicy.Node("Order platzieren",clickable=true))) {
+            assertFalse("Protected node: $n",
+                MorningReadPolicy.passiveGoldSearchRebuild(page+n))
+        }
+        assertFalse(MorningReadPolicy.passiveGoldSearchRebuild(
+            page.filterNot { it.text in setOf("Märkte","Hebelprodukte","Top Ergebnisse") }))
+        assertFalse(MorningReadPolicy.passiveGoldSearchRebuild(
+            page.mapIndexed { i,n -> if(i==3)n.copy(clickable=false) else n }))
+        assertFalse(MorningReadPolicy.passiveGoldSearchRebuild(
+            page.mapIndexed { i,n -> if(i==3)n.copy(row="Order platzieren\\nK") else n }))
+        assertFalse(MorningReadPolicy.passiveGoldSearchRebuild(
+            page+MorningReadPolicy.Node("Suche",editable=true)))
+        val product=MorningReadPolicy.Node(
+            "Gold Turbo DE000SQ02JQ6",row="Gold Turbo DE000SQ02JQ6")
+        assertFalse(MorningReadPolicy.passiveGoldSearchRebuild(
+            listOf(page[0],page[1],product,page[3].copy(parent=2))))
+        assertFalse(MorningReadPolicy.passiveGoldSearchRebuild(
+            page+MorningReadPolicy.Node("K",parent=3)))
+        assertFalse(MorningReadPolicy.passiveGoldSearchRebuild(emptyList()))
+    }
+
     @Test fun quarantinedGoldResearchRecoversOnlyIsolatedMarketsSearchNextToLauncher() {
         val target="DE000SQ02JQ6"
         val gold=MorningReadPolicy.Node("SG Gold Turbo Mini Call $target",
