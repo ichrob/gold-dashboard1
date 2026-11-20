@@ -1,0 +1,34 @@
+{
+  "name": "bob-oracle-a1-retry",
+  "main": "worker.js",
+  "compatibility_date": "2026-11-20",
+  "workers_dev": false,
+  "preview_urls": false,
+  "upload_source_maps": true,
+  "vars": {
+    "ENABLED": "false",
+    "ALLOW_APPLY": "false",
+    "PLAN_VERIFIED_ALWAYS_FREE": "false"
+  },
+  "triggers": {
+    "crons": [
+      "*/30 * * * *"
+    ]
+  },
+  "observability": {
+    "enabled": true,
+    "redact_query_string": true,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "invocation_logs": true,
+      "persist": true
+    },
+    "issues": {
+      "enabled": true
+    },
+    "traces": {
+      "enabled": false
+    }
+  }
+}
