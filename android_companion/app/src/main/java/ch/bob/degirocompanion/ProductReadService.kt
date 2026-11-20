@@ -39,6 +39,10 @@ class ProductReadService : AccessibilityService() {
     private var localResearchOwnerLoginWaiting = false
     private var localResearchLoginTicket = ""
     private var localResearchGoldRebuilding = false
+    // Passive grace after the already authorized research handoff; never
+    // enables a search action, new session or broker UI interaction.
+    private var localResearchHandoffAt = 0L
+    private var localResearchHandoffTicket = ""
     private var localResearchScreenLease: PowerManager.WakeLock? = null
     private fun clearLocalResearchWait() {
         localResearchAwaitingDegiro = false
@@ -453,6 +457,8 @@ class ProductReadService : AccessibilityService() {
         DegiroReadOnlySession.onStart={handler.post {queueDegiroReadOnly(450)}}
         PhoneRemote.onStop={ code ->
             clearLocalResearchWait()
+            localResearchHandoffAt=0L
+            localResearchHandoffTicket=""
             // User STOP, screen-lock abort and session expiry must never leave
             // an old login handoff armed. Verified-login callbacks carry a
             // generation ticket, so clearing here also invalidates late posts.
@@ -2112,6 +2118,8 @@ class ProductReadService : AccessibilityService() {
             clearLocalResearchWait()
             ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LOCAL_RESEARCH_SEARCH_READY)
             MorningReadRun.beginDiscovered(this,local,researchOnly=true)
+            localResearchHandoffAt=SystemClock.elapsedRealtime()
+            localResearchHandoffTicket=ticket
             ProductReadRequest.start(SystemClock.elapsedRealtime())
             PhoneDiagnostics.queue(this)
         } else if(attempt<8) {
@@ -2549,6 +2557,27 @@ class ProductReadService : AccessibilityService() {
             }
             when(action.kind) {
                 MorningReadPolicy.Kind.BLOCK -> {
+                    // Samsung can temporarily virtualize away the Gold search
+                    // input just after LOCAL_RESEARCH_SEARCH_READY. Wait ONLY
+                    // on a strict read-only global-launcher shape, within this
+                    // original owner ticket and a fixed five-second deadline.
+                    // No tap, focus, query, scroll, order or invented product
+                    // identity is attempted. Other protected views BLOCK now.
+                    val elapsed=SystemClock.elapsedRealtime()-localResearchHandoffAt
+                    if(!gold && MorningReadRun.researchOnlyActive() &&
+                        MorningReadRun.index==0 && !MorningReadRun.reading &&
+                        !batchResultOpened && PhoneRemote.active() &&
+                        localResearchHandoffAt>0L &&
+                        localResearchHandoffTicket==PhoneRemote.sessionId() &&
+                        elapsed in 0L until 5000L &&
+                        action.code=="PROTECTED_ORDER_CONFIRM" &&
+                        MorningReadPolicy.passiveGoldSearchRebuild(descriptions)) {
+                        if(lastNavigationIssue!="LOCAL_RESEARCH_PASSIVE_SEARCH_REBUILD")
+                            record("LOCAL_RESEARCH_PASSIVE_SEARCH_REBUILD")
+                        lastNavigationIssue="LOCAL_RESEARCH_PASSIVE_SEARCH_REBUILD"
+                        queueRead(500)
+                        return true
+                    }
                     if(!gold && action.code=="PROTECTED_ORDER_CONFIRM") MorningReadPolicy.detailLauncherIndex(
                         descriptions,MorningReadRun.target,symbolProbe=MorningReadRun.importedListRun(),rejected=ProductReadDiagnostics::detailGuard)
                     if(action.code=="PROTECTED_ORDER_CONFIRM") ProductReadDiagnostics.launcher(MorningReadPolicy.launcherSearchIssue(descriptions),descriptions)
