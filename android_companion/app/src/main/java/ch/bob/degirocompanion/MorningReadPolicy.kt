@@ -836,8 +836,13 @@ internal object MorningReadPolicy {
             if(nodes.indices.any { it!=index && descends(it,index) }) return null
             var p=launcher.parent; var hops=0
             while(p in nodes.indices && hops++<nodes.size) {
-                if(ids.containsMatchIn(nodes[p].text.uppercase()))return null
-                p=nodes[p].parent
+                // WebView aggregates a product identity into row, while
+                // keeping the wrapper's text empty. Never treat an order
+                // launcher nested inside that product wrapper as global.
+                val parent=nodes[p]
+                if(ids.containsMatchIn(parent.text.uppercase()) ||
+                    ids.containsMatchIn(parent.row.uppercase()))return null
+                p=parent.parent
             }
         }
         val visible=captureGoldList(nodes,true)
