@@ -782,7 +782,9 @@ class MorningReadPolicyTest {
             captured.drop(1).toSet()+"INVALID"))
         assertNull(MorningReadPolicy.postCaptureGoldSearchFocusIndex(
             listOf(field),captured))
-        assertNull(MorningReadPolicy.postCaptureGoldSearchFocusIndex(
+        // This is an ACTIVATE-only operation on the already captured list:
+        // Samsung may omit tab selected-state when the search header returns.
+        assertEquals(0,MorningReadPolicy.postCaptureGoldSearchFocusIndex(
             listOf(field,MorningReadPolicy.Node("Hebelprodukte")),captured))
         assertNull(MorningReadPolicy.postCaptureGoldSearchFocusIndex(
             verified.mapIndexed { i,n -> if(i==0)n.copy(text="DE000ZX000001") else n },captured))
