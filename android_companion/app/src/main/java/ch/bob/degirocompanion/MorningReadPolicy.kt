@@ -689,7 +689,13 @@ internal object MorningReadPolicy {
             // can use this narrow extra classification. Genuine order views
             // stay BLOCK: the actual search must be separately labelled.
             isolatedGoldSearchAfterLauncher(nodes)?.let { return it }
+            // CRITICAL: do not fall through to importedListSearch(), which
+            // may create a synthetic Gold input for SCROLL classification.
+            // That older helper must never downgrade a protected form or
+            // an embedded product-card order launcher to a search click.
+            return ordinary
         }
+        if(ordinary.kind==Kind.BLOCK && protection(nodes)!=null) return ordinary
         if(ordinary.kind in setOf(Kind.BACK,Kind.WAIT,Kind.BLOCK)) {
             // After the Gold list scroll, a live WebView can expose the
             // original Gold input before the category/row nodes settle.
