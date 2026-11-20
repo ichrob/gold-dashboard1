@@ -13,6 +13,9 @@ on:
       # Archive replay and offline COPY validation require the same safety checks.
       - 'storage_archive_*.py'
       - 'test_storage_archive_*.py'
+      - 'test_diagnostic_reference_postgres.py'
+      - 'metric_growth_scope_probe.py'
+      - 'test_metric_growth_scope_probe.py'
       - "termux_maintenance.py"
       - "bob_termux_runner.py"
       - "test_termux_maintenance.py"
