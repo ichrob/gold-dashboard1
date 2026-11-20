@@ -41,12 +41,12 @@ class StopLossMockOrderDeviceTest {
         exercise("HAPPY_PATH","12,43")
     }
     @Test fun wrongIsinIsBlockedBeforeAnyMockWrite() {
-        exercise("WRONG_ISIN","PRODUKT_ISIN_NICHT_ERKANNT")
+        exercise("WRONG_ISIN","Sperre in OPEN_FORM: PRODUKT_ISIN_NICHT_ERKANNT")
     }
     @Test fun aMockBuyFormNeverPassesSellVerification() {
-        exercise("BUY_SELECTED","VERKAUF_NICHT_BESTAETIGT")
+        exercise("BUY_SELECTED","Sperre in VERIFY_FORM: VERKAUF_NICHT_BESTAETIGT")
     }
     @Test fun ambiguousRealMockViewCaptionsBlockWriting() {
-        exercise("AMBIGUOUS_STOP_FIELD","STOP_FELD_NICHT_EINDEUTIG")
+        exercise("AMBIGUOUS_STOP_FIELD","Sperre in WRITE_STOP: STOP_FELD_NICHT_EINDEUTIG")
     }
 }
