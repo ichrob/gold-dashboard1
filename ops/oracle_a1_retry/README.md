@@ -8,6 +8,7 @@ Status (2026-11-20): `bob-oracle-a1-retry` als Cloudflare Worker veröffentlicht
 - Nur `eu-zurich-1`, OCI Resource Manager: übernimmt **ausschließlich** den zuvor geprüften Terraform-Plan (`FROM_PLAN_JOB_ID`).
 - Stoppt bei laufenden Jobs, bei bereits erfolgreich abgeschlossenem Apply, unbekannten Fehlern, kaputtem/fehlendem Plan und unklaren Zuständen.
 - Wiederholt frühestens nach 25 Minuten und nur nach einem im letzten Apply-Log bestätigten Oracle-Kapazitätsfehler. Die Cron-Triggers liegen 30 Minuten auseinander.
+- Ein deterministischer `opc-retry-token` pro fehlgeschlagenem Apply und geprüftem Plan reduziert das Risiko doppelter Jobs bei zeitgleich ausgeführten Worker-Instanzen. OCI bewahrt Retry-Tokens bis zu 24 Stunden; nach diesem Zeitraum ist das kein dauerhafter globaler Lock. Fehlende oder ungültige Job-Zeitstempel sperren neue Applies.
 - Keine Echtgeldausführung, keine neuen Handelsberechtigungen, keine Änderungen am bestehenden Cloudflare-Bob-Wächter.
 - HTTP-Zugriff liefert immer 404; keine extern auslösbare Provisionierung.
 - Keine Kosten-/SKU-Freigabe durch den Worker. Der Terraform-Plan muss vor Aktivierung explizit als **Always Free, Zürich, 1 OCPU, 4 GB RAM, 50 GB Boot, kein Public IP** geprüft sein. Danach `PLAN_VERIFIED_ALWAYS_FREE=true` nur gemeinsam mit zwei weiteren Schaltern setzen.
@@ -38,3 +39,9 @@ Lokale Schutzlogiktests: `node ops/oracle_a1_retry/worker.test.mjs`.
 Cloudflare: Worker > Observability > Logs; Statuscodes `disabled`, `job_in_progress`, `already_succeeded`, `not_a_capacity_failure`, `apply_submitted`.
 Not-Aus: `ENABLED=false` in Cloudflare.
 Die bestehende Cloud-Shell-`bob-a1-v4.sh` nicht parallel starten, solange die Cloudflare-Automatik aktiv ist. Cloudflare Cron kann verzögert starten, daher sind 30 Minuten eine Soll-Frequenz, kein Echtzeitversprechen.
+
+## Befund aus Oracle-Terraform-Export vom 20.11.2026
+
+Das hochgeladene Terraform-State enthält Netzwerk, isolierte Security List und privates Subnetz, **keine erstellte OCI-Compute-Instanz**. Die originale `main.tf` setzt `assign_public_ip=false`, `prohibit_public_ip_on_vnic=true` und enthält weder Security-List-Regeln noch NAT-/Service-Gateway-Route. Das ist ein absichtlich isolierter Teststand: eine spätere VM wäre damit nicht für Fern-OCR/Updates aus Bob erreichbar. Das ist **nicht** automatisch ein Grund, öffentliche Ports zu öffnen. Netzwerkzugang für spätere OCR-Nutzung erst separat ohne Mehrkosten, mit Authentifizierung und minimalen Firewall-Regeln entwerfen und überprüfen. Der Import/Status beweist keinen konkreten `Out of host capacity`-Fehler; dafür ist das Apply-Job-Log nötig.
+
+Die Sicherheitsprüfung gegen Doppelstarts ist nur Quellcode-Test und ersetzt **keinen** authentifizierten OCI-Joblauf. Der bei Cloudflare bereits veröffentlichte Worker erhält Codeänderungen nicht allein durch den GitHub-Merge: ein gesonderter kontrollierter Worker-Rollout ist erforderlich, solange der Apply-Schalter auf `false` bleibt.
