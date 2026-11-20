@@ -10,14 +10,14 @@ assert.equal(validate({...e,OCI_PRIVATE_KEY_PEM:''}).status,'configuration_requi
 const failed={id:'ocid1.ormjob.oc1..last',operation:'APPLY',lifecycleState:'FAILED',timeCreated:new Date(Date.now()-7200000).toISOString(),timeFinished:new Date(Date.now()-3600000).toISOString()};
 let writes=0, tokens=[];
 const networkState={version:4,resources:[
-  {mode:'managed',type:'oci_core_vcn',name:'bob',instances:[{attributes:{id:'vcn',compartment_id:'bob-comp'}}]},
-  {mode:'managed',type:'oci_core_subnet',name:'test',instances:[{attributes:{id:'subnet',vcn_id:'vcn',compartment_id:'bob-comp',prohibit_public_ip_on_vnic:true}}]},
+  {mode:'managed',type:'oci_core_vcn',name:'bob',instances:[{attributes:{id:'vcn',compartment_id:'ocid1.compartment.oc1..bobtest'}}]},
+  {mode:'managed',type:'oci_core_subnet',name:'test',instances:[{attributes:{id:'subnet',vcn_id:'vcn',compartment_id:'ocid1.compartment.oc1..bobtest',prohibit_public_ip_on_vnic:true}}]},
   {mode:'managed',type:'oci_core_security_list',name:'isolated',instances:[{attributes:{id:'acl',vcn_id:'vcn',ingress_security_rules:[],egress_security_rules:[]}}]}
 ]};
 const goodPlan={resource_changes:[{
   address:'oci_core_instance.bob',mode:'managed',type:'oci_core_instance',
   change:{actions:['create'],after:{
-    display_name:'bob-ocr-zurich',compartment_id:'bob-comp',availability_domain:'JJTG:EU-ZURICH-1-AD-1',
+    display_name:'bob-ocr-zurich',compartment_id:'ocid1.compartment.oc1..bobtest',availability_domain:'JJTG:EU-ZURICH-1-AD-1',
     shape:'VM.Standard.A1.Flex',shape_config:[{ocpus:1,memory_in_gbs:4}],
     source_details:[{source_type:'image',source_id:'ocid1.image.oc1.eu-zurich-1.aaaaaaaadk22jaklt42vd4entg5pfsn5jfwbakrs7nsrawqvv5ya7iefhgiq',boot_volume_size_in_gbs:50,boot_volume_vpus_per_gb:10}],
     create_vnic_details:[{subnet_id:'subnet',assign_public_ip:false}],
