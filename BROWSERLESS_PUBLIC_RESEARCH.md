@@ -43,9 +43,27 @@ keine automatische Tradeausführung, keine Order.
   sg, comdirect und BNP Paribas sind feste Domain-/Pfadschablonen. Kein frei übergebbarer
   Weblink, kein DEGIRO-Host, keine Cookies oder Login-Profile.
 - Die Smart-Scrape-Schnittstelle liefert Markdown und unverbindliche KI-Felder.
-  Die öffentliche Quellseite muss HTTP 200 melden. Die Identität muss sowohl
-  im tatsächlichen Markdown als auch in der KI-Antwort exakt stimmen. Mögliche Hinweise: Richtung, KO, Geld/Brief, Hebel,
+  Die öffentliche Quellseite muss HTTP 200 melden. Die KI-Ausgabe muss exakt
+  die angefragte gültige vollständige ISIN enthalten. Der Seitentext muss
+  entweder dieselbe vollständige ISIN zeigen oder (NUR bei SG) zusätzlich zu
+  einer exakt passenden WKN-Überschrift im ersten Produktseitenabschnitt die
+  typischen Stammdaten / Basiswert / Knock-Out-Felder enthalten. Im SG-WKN-Modus
+  darf die KI die ISIN auslassen und muss die sichtbare WKN exakt auslesen;
+  eine abweichende KI-ISIN sperrt immer. Die fehlende ISIN wird niemals
+  vom Modell als Originalbeleg nacherfunden. Jede andere vollständige ISIN
+  im reinen WKN-Fallback führt zur Ablehnung. Eine allgemeine Trefferliste,
+  Seitenleiste oder bloße Erwähnung der WKN genügt nicht.
+  Dieses Ergebnis trägt sourceIdentityEvidence und ggf.
+  sourceIdentityLimited=true sowie sourceIsinObserved=false. Auch bei Übereinstimmung sind KI-Kurse
+  ausdrücklich NICHT durch Originalquelle/Handelsplatz bestätigt.
+  Mögliche Hinweise: Richtung, KO, Geld/Brief, Hebel,
   Status, Basiswert und auf der Seite angezeigte Kurs-/Hebelzeiten.
+- Der Screenshot des ersten Praxisabrufs (20.11.2026, 06:10 CH)
+  dokumentiert identity-not-proven für SG DE000FB0A490. Daraus folgt nur,
+  dass die damalige Browserless-Markdown-Antwort keine exakte ISIN enthielt;
+  die damalige Markdown-Rohantwort ist nicht gespeichert. Das ist kein
+  Beweis einer falschen ISIN oder eines falschen SG-Produkts. Dieser
+  Codepfad versucht keine automatischen kostenpflichtigen Wiederholungen.
 - Antwortfelder bleiben reine Recherchekandidaten. Sie werden nicht
   in product_quotes, quote_updates, Handelsstatus, Produktfreigaben,
   KO-Schwellen, Simulationseinstiege oder Echtgeldaufträge übernommen.
