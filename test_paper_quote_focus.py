@@ -16,6 +16,8 @@ class PaperQuoteFocusTests(unittest.TestCase):
             {'isin': 'FACTOR', 'productDirection': 'SHORT', 'name': 'Faktor Short'},
             {'isin': 'KNOCK', 'productDirection': 'SHORT', 'name': 'Turbo Short',
              'knockedOut': True},
+            {'isin': 'ENDED', 'productDirection': 'SHORT', 'name': 'Turbo Short',
+             'quote': {'productVerified': True, 'metadata': {'status': 2}}},
         ]
         self.base = dict(ready=True, priceFresh=True, direction='NEUTRAL')
     
