@@ -22,6 +22,54 @@ class CliUnavailable(Exception):
     pass
 
 
+def classify_oci_error(stderr):
+    """Only a small fixed diagnostic code may leave Cloud Shell."""
+    msg = str(stderr or '').lower()
+    if 'notauthorizedornotfound' in msg or 'not authorized' in msg:
+        return 'NOT_AUTHORIZED_OR_NOT_FOUND'
+    if 'notauthenticated' in msg or 'authenticationfailed' in msg or '401' in msg:
+        return 'AUTHENTICATION_FAILED'
+    if 'ratelimit' in msg or 'too many requests' in msg or '429' in msg:
+        return 'RATE_LIMIT'
+    if 'timed out' in msg or 'connection error' in msg or 'connection reset' in msg:
+        return 'NETWORK_OR_TIMEOUT'
+    if 'no such option' in msg or 'no such command' in msg or 'usage:' in msg:
+        return 'CLI_ARGUMENT_ERROR'
+    return 'OTHER_CLI_ERROR'
+
+
+def vnic_public_ip_flag(plan):
+    """Classify the planned NIC without exposing raw Terraform plan details."""
+    if not isinstance(plan, dict) or not isinstance(plan.get('resource_changes'), list):
+        return 'UNKNOWN'
+    changes = [x for x in plan['resource_changes'] if isinstance(x, dict)
+               and x.get('address') == 'oci_core_instance.bob']
+    if len(changes) != 1:
+        return 'UNKNOWN'
+    change = changes[0].get('change', {})
+    if not isinstance(change, dict):
+        return 'UNKNOWN'
+    known = change.get('after')
+    if not isinstance(known, dict):
+        return 'UNKNOWN'
+    details = one(known.get('create_vnic_details'))
+    unknown = change.get('after_unknown')
+    if isinstance(unknown, dict):
+        unknown_vnic = one(unknown.get('create_vnic_details'))
+        if unknown_vnic.get('assign_public_ip') is True:
+            return 'UNKNOWN_IN_TERRAFORM_PLAN'
+    if 'assign_public_ip' not in details:
+        return 'MISSING_IN_PLAN'
+    flag = details.get('assign_public_ip')
+    if flag is False:
+        return 'FALSE'
+    if flag is True:
+        return 'TRUE'
+    if flag is None:
+        return 'NULL'
+    return 'UNEXPECTED_TYPE'
+
+
 def call(*args, output_file=None):
     argv = ['oci', *args, '--region', REGION]
     try:
@@ -30,7 +78,7 @@ def call(*args, output_file=None):
         raise CliUnavailable('OCI_CLI_NOT_AVAILABLE_OR_TIMEOUT') from ex
     if p.returncode != 0:
         # Never emit stderr; it can contain account IDs or other sensitive context.
-        raise CliUnavailable('OCI_COMMAND_REJECTED')
+        raise CliUnavailable(classify_oci_error(p.stderr))
     if output_file:
         return None
     return p.stdout
@@ -121,6 +169,7 @@ def main(stack):
             print('RESULT=INVALID_STACK_COMPARTMENT')
             return 3
         live_status = 'UNAVAILABLE'
+        live_error = 'NONE'
         try:
             raw_compute = parse_json(call('compute', 'instance', 'list',
                                           '--compartment-id', compartment, '--all'))
@@ -139,10 +188,17 @@ def main(stack):
                                'ONE_STOPPED' if lifecycle == 'STOPPED' else 'ONE_OTHER_STATE')
             else:
                 live_status = 'MULTIPLE'
-        except CliUnavailable:
-            pass
+        except CliUnavailable as error:
+            live_error = str(error) if str(error) in {
+                'NOT_AUTHORIZED_OR_NOT_FOUND', 'AUTHENTICATION_FAILED',
+                'RATE_LIMIT', 'NETWORK_OR_TIMEOUT', 'CLI_ARGUMENT_ERROR',
+                'OTHER_CLI_ERROR', 'OCI_CLI_NOT_AVAILABLE_OR_TIMEOUT',
+                'OCI_RESPONSE_NOT_JSON', 'INVALID_COMPUTE_LIST'
+            } else 'OTHER_CLI_ERROR'
         print('COMPUTE_INSTANCE=' + live_status)
+        print('COMPUTE_LOOKUP_ERROR=' + live_error)
         state_status = 'UNAVAILABLE'
+        subnet_ip_prohibited = 'UNKNOWN'
         try:
             with tempfile.TemporaryDirectory(prefix='bob_oci_state_ro_') as state_folder:
                 state_file = Path(state_folder) / 'tfstate.json'
@@ -155,15 +211,30 @@ def main(stack):
                           and x.get('mode') == 'managed' and x.get('type') == 'oci_core_instance'
                           and isinstance(x.get('instances'), list) and len(x['instances']) > 0]
                     state_status = 'PRESENT' if vm else 'ABSENT'
+                    subnets = [x for x in resources if isinstance(x, dict)
+                               and x.get('mode') == 'managed'
+                               and x.get('type') == 'oci_core_subnet'
+                               and x.get('name') == 'test']
+                    if len(subnets) == 1:
+                        values = subnets[0].get('instances', [])
+                        if isinstance(values, list) and len(values) == 1:
+                            att = values[0].get('attributes', {})
+                            flag = att.get('prohibit_public_ip_on_vnic') if isinstance(att, dict) else None
+                            subnet_ip_prohibited = ('TRUE' if flag is True else
+                                                    'FALSE' if flag is False else 'UNKNOWN')
                 else:
                     state_status = 'INVALID'
         except (CliUnavailable, OSError, KeyError, ValueError):
             pass
         print('TERRAFORM_STATE_INSTANCE=' + state_status)
-        print('COMPUTE_TF_DISAGREEMENT=' + str(
-            (live_status in ('ONE_RUNNING', 'ONE_STOPPED', 'ONE_OTHER_STATE', 'MULTIPLE')
-             and state_status == 'ABSENT') or
-            (live_status == 'ABSENT' and state_status == 'PRESENT')).lower())
+        print('STATE_SUBNET_PROHIBITS_PUBLIC_IP=' + subnet_ip_prohibited)
+        if live_status == 'UNAVAILABLE' or state_status not in ('PRESENT', 'ABSENT'):
+            print('COMPUTE_TF_DISAGREEMENT=UNKNOWN')
+        else:
+            print('COMPUTE_TF_DISAGREEMENT=' + str(
+                (live_status in ('ONE_RUNNING', 'ONE_STOPPED', 'ONE_OTHER_STATE', 'MULTIPLE')
+                 and state_status == 'ABSENT') or
+                (live_status == 'ABSENT' and state_status == 'PRESENT')).lower())
         raw_jobs = parse_json(call('resource-manager', 'job', 'list', '--stack-id', stack, '--all'))
         jobs = raw_jobs.get('data', [])
         if not isinstance(jobs, list):
@@ -194,9 +265,12 @@ def main(stack):
             path = Path(folder) / 'tfplan.json'
             try:
                 call('resource-manager', 'job', 'get-job-tf-plan', '--job-id', plans[0]['id'], '--tf-plan-format', 'JSON', '--file', str(path), output_file=path)
-                verified, reason = valid_plan(parse_json(path.read_text(encoding='utf-8')))
+                content = parse_json(path.read_text(encoding='utf-8'))
+                print('PLAN_VNIC_ASSIGN_PUBLIC_IP=' + vnic_public_ip_flag(content))
+                verified, reason = valid_plan(content)
             except (CliUnavailable, OSError):
                 verified, reason = False, 'PLAN_UNAVAILABLE'
+                print('PLAN_VNIC_ASSIGN_PUBLIC_IP=UNAVAILABLE')
         print('PLAN_CONFIGURATION=' + reason)
         print('ACCOUNT_FREE_TIER_STATUS=NOT_VERIFIABLE_FROM_PLAN')
         print('RESULT=' + ('PLAN_CONFIG_CHECKED_ACCOUNT_REVIEW_PENDING' if verified else 'PLAN_REJECTED'))
