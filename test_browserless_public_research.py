@@ -11,6 +11,11 @@ class PublicBrowserlessTests(unittest.TestCase):
     def setUp(self):
         b._RESERVED.clear()
         b._LAST_PROVIDER_ERRORS.clear()
+        # Legacy provider-response fixtures explicitly exercise the isolated
+        # extractor; production uses the safer SG suspension by default.
+        self.override = patch.object(b, "SG_BROWSERLESS_SUSPENDED", False)
+        self.override.start()
+        self.addCleanup(self.override.stop)
         self.now = datetime(2026, 11, 19, 20, 0, tzinfo=timezone.utc)
 
     def test_http_403_rejection_exposes_safe_status_then_duplicate_replays_only_status(self):
@@ -44,6 +49,47 @@ class PublicBrowserlessTests(unittest.TestCase):
         for status, category in expected.items():
             self.assertEqual(b._http_error_category(status), category)
         self.assertEqual(b._http_error_category("403"), "unknown")
+
+    def test_production_sg_is_suspended_before_quota_and_network(self):
+        with patch.object(b, "SG_BROWSERLESS_SUSPENDED", True), \
+             patch.dict(os.environ, {"BROWSERLESS_API_TOKEN": "private",
+                                     "BOB_BROWSERLESS_PUBLIC_RESEARCH": "1",
+                                     "BOB_BROWSERLESS_FREE_ACCOUNT_CONFIRMED": "1"}), \
+             patch.object(b.requests, "post") as post:
+            ready = b.readiness()
+            self.assertTrue(ready["canStart"])  # other public sources may be tested
+            self.assertTrue(ready["sgBrowserlessSuspended"])
+            result = b.extract("DE000FB0A490", now=self.now)
+            self.assertEqual(result["state"], "direct-sg-preferred")
+            self.assertFalse(result["eligible"])
+            self.assertFalse(result["tradeApproved"])
+            self.assertFalse(result["isDegiroQuote"])
+            self.assertEqual(result["fields"], {})
+            self.assertFalse(result["diagnostics"]["providerCallStarted"])
+            self.assertEqual(len(b._RESERVED), 0)
+            post.assert_not_called()
+            result2 = b.extract("DE000FB0A490", now=self.now)
+            self.assertEqual(result2["state"], "direct-sg-preferred")
+            post.assert_not_called()
+
+    def test_other_public_sources_are_not_suspended(self):
+        response=MagicMock()
+        response.status_code=200
+        response.iter_content.return_value=[json.dumps({
+            "ok":True,"statusCode":200,"strategy":"http-fetch",
+            "markdown":"Produkt ISIN DE000BY7UKR4",
+            "json":{"isin":"DE000BY7UKR4"}
+        }).encode()]
+        with patch.object(b, "SG_BROWSERLESS_SUSPENDED", True), \
+             patch.dict(os.environ, {"BROWSERLESS_API_TOKEN": "private",
+                                     "BOB_BROWSERLESS_PUBLIC_RESEARCH": "1",
+                                     "BOB_BROWSERLESS_FREE_ACCOUNT_CONFIRMED": "1"}), \
+             patch.object(b.requests,"post") as post:
+            post.return_value.__enter__.return_value=response
+            result=b.extract("DE000BY7UKR4",source="bnp",now=self.now)
+            self.assertEqual(result["state"],"unverified-research")
+            self.assertFalse(result["tradeApproved"])
+            self.assertEqual(post.call_count,1)
 
     def test_no_secret_does_not_call_cloud(self):
         with patch.dict(os.environ, {"BOB_BROWSERLESS_PUBLIC_RESEARCH": "1",
