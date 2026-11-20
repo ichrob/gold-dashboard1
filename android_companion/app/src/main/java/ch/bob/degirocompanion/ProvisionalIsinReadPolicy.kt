@@ -24,4 +24,24 @@ internal object ProvisionalIsinReadPolicy {
             local.any { !SeriesEvidence.validIsin(it) }) return null
         return local.toList()
     }
+
+    /** Memory exhaustion is not a validated broker list. After bounded server
+     * polling, the owner may still inspect exactly ten ISINs actually observed
+     * on this device in the same fresh session. No list/price/trade approval. */
+    fun memoryCandidates(
+        local: List<String>,
+        currentBatch: String,
+        receiptBatch: String,
+        stage: String,
+        error: String,
+        images: Int,
+        resumedSavedCapture: Boolean
+    ): List<String>? {
+        if (resumedSavedCapture || !currentBatch.matches(Regex("[a-f0-9]{32}")) ||
+            receiptBatch != currentBatch || stage != "read-failed" ||
+            error != "MemoryError" || images !in 3..4 ||
+            local.size != 10 || local.distinct().size != local.size ||
+            local.any { !SeriesEvidence.validIsin(it) }) return null
+        return local.toList()
+    }
 }
