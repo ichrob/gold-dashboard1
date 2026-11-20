@@ -211,8 +211,13 @@ class StopLossMockOrderActivity : Activity() {
         val decision=StopLossPrefillPolicy.decide(stage,frame,draft)
         when(decision.kind) {
             StopLossPrefillPolicy.Kind.BLOCK -> {
-                val expected=scenario!=StopLossOfflineSimulation.Scenario.HAPPY_PATH
-                stop("Sperre: "+decision.code,passed=expected)
+                // A negative device test only passes at its specified gate.
+                // A random earlier BLOCK is a failure, not a safety success.
+                val expected=StopLossOfflineSimulation.expectedBlock(scenario)
+                val exactBlock=expected != null && expected.stage==stage &&
+                    expected.code==decision.code &&
+                    stopField.isEmpty() && quantityField.isEmpty()
+                stop("Sperre in $stage: "+decision.code,passed=exactBlock)
             }
             StopLossPrefillPolicy.Kind.DONE -> {
                 stop(if(stopField==draft.stopText &&
