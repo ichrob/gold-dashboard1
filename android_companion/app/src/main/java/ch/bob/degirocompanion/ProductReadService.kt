@@ -1699,7 +1699,14 @@ class ProductReadService : AccessibilityService() {
             // After asynchronous OCR, a WebView can expose new original rows
             // without a reported scroll event. Capture those new identities
             // first instead of scrolling past them or misreporting the footer.
-            val candidates=nodes.indices.filter { i ->
+            // The DEGIRO WebView can leave ACTION_SCROLL_FORWARD advertised
+            // even at its real footer. After three original photos, prefer one
+            // bounded verified-footer recapture over scrolling the same rows.
+            // This is never a click or an authorization of a product/order.
+            val footerFirst=root.windowId==listWindowId &&
+                MorningListEndPolicy.needsFooterRecapture(descriptions,listImages.length(),
+                    listSeenIds,action.isins,action)
+            val candidates=if(footerFirst) emptyList() else nodes.indices.filter { i ->
                 val n=nodes[i]; val d=descriptions[i]
                 n.isVisibleToUser && n.isEnabled && !n.isEditable && !n.isPassword &&
                     n.className?.toString()!="android.widget.HorizontalScrollView" &&
