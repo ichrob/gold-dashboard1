@@ -146,3 +146,38 @@ ein originaler Samsung-Praxistest und eine eigenständige App-Korrektur nötig.
   automatisch schließen.
 - Source Maps erst als „live“ ausweisen, wenn der Cloudflare-Build sie
   tatsächlich hochgeladen hat.
+
+## Cron-Laufnachweise (Erweiterung vom 20.11.2026)
+
+Zusätzlich ist im bestehenden Cloudflare-Konto die **kostenlose, read-only**
+gespeicherte Abfrage `Bob – Letzte Cron-Ausführung (kostenlos)` mit ID
+`ykuxjok2rrtscwcolvxaol6d` angelegt und durch einen echten
+Observability-Query-Test bestätigt. Sie führt
+`max($workers.event.scheduledTime)` gruppiert nach
+`$metadata.service` aus und erfasst keine neuen Rohlogs. **Zeitwert in
+Unix-Sekunden, nicht Millisekunden.** Der aktuell gemessene Cron-Tick ist ein
+Cloudflare-Protokollbeleg, kein Erfolg von Oracle Apply oder GitHub Dispatch.
+
+Der Python-Adapter
+`summarize_cron_receipts(response, now_epoch_seconds=...)`
+akzeptiert nur zwei aktuell bekannte Cron-Worker, verifiziert das
+Antwortformat und berechnet rein numerische Alterswerte:
+
+- `bob-watchdog-clock`: konfiguriert alle 10 Minuten;
+- `bob-oracle-a1-retry`: konfiguriert alle 30 Minuten.
+
+`recent` bedeutet protokollierter Tick innerhalb von drei Sollabständen,
+`old-observation` bedeutet ein älterer letzter Tick und `not-observed`
+bedeutet kein Nachweis im konkret abgefragten Zeitfenster. **Keiner**
+dieser Zustände ist allein der Nachweis, dass der Worker insgesamt gesund,
+Oracle aktiv oder ein GitHub-/Render-Reparaturfall geschlossen wäre.
+API-Ausfall, unzulässiges Datum oder unlesbare Aggregationen geben
+`unknown` zurück. Nie eine *neue* Störungsbenachrichtigung nur wegen
+einer einzelnen fehlenden Zeitreihe; erst Original-Cron/Schedule
+und zwei unabhängige frische Abrufe prüfen, danach in der
+bestehenden Fehlerzentrale deduplizieren.
+
+Die bereits aktiven und kostenlosen zwei Fehler-/Usage-Abfragen bleiben
+unverändert; kein zusätzlicher Cron, kein Worker, keine Cloudflare-Automation,
+kein kostenpflichtiger Dienst, kein neues Secret.
+
