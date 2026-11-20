@@ -197,9 +197,9 @@ internal object MorningListDelivery {
                                 " Nur lokal erfasste ISINs werden für eine " +
                                 "getrennte, nicht handelsfähige Recherche gelesen.")
                             runCatching { onProvisionalResearch?.invoke(provisional) }.onFailure {
-                                status(c,"Lokale ISIN-Recherche konnte nicht sicher starten. " +
-                                    "Originalbilder und Fehlerbericht bleiben gespeichert.")
-                                PhoneRemote.stop(c,"LIST_UPLOAD_FAILED")
+                                status(c,"Lokale ISIN-Recherche konnte die sichere Suchansicht " +
+                                    "nicht bestätigen. Originalbilder bleiben lokal gespeichert.")
+                                PhoneRemote.stop(c,"LOCAL_RESEARCH_START_BLOCKED")
                             }
                         } else if(archivedReady && PhoneRemote.active() &&
                             PhoneRemote.sessionId()==session && onFreshCaptureRequired!=null) {
