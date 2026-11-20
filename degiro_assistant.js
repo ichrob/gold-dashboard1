@@ -5803,7 +5803,7 @@ function standbyProductCandidates(products,context={}){
    const bnp=x.source==='comdirect · BNP LiveTrading'&&x.venue==='LT BNP Paribas'&&
     (q.issuerModelSource?.source||q.paperIssuerSource||q.source||'').startsWith('BNP Paribas ·');
    if(!sg&&!bnp)return false;
-   const times=[x.bidAt,x.askAt,x.quoteAt].map(v=>typeof v==='string'&&/(?:Z|[+-]\\d{2}:\\d{2})$/.test(v)?Date.parse(v):NaN);
+   const times=[x.bidAt,x.askAt,x.quoteAt].map(v=>typeof v==='string'&&/(?:Z|[+-]\d{2}:\d{2})$/.test(v)?Date.parse(v):NaN);
    return times.every(t=>Number.isFinite(t)&&t<=now&&now-t<=90000)&&
      times[0]===times[1]&&times[0]===times[2];
   }).sort((a,b)=>Date.parse(b.quoteAt)-Date.parse(a.quoteAt));
