@@ -1,6 +1,6 @@
 """Cloudflare incidents use Bob's existing canonical, public-safe error panel."""
 import unittest
-from bob_issue_watchdog import CODES, EXTERNAL_CODES, issue_title, sync_issue
+from bob_issue_watchdog import CODES, CLOUDFLARE_CODES, issue_title, sync_issue
 from bob_problems import from_issues
 
 
@@ -8,7 +8,7 @@ class TestCloudflareIssueRouting(unittest.TestCase):
     def test_cloudflare_codes_are_known_and_externally_verified(self):
         for code in ("cloudflare-worker-error", "cloudflare-observability-coverage"):
             self.assertIn(code, CODES)
-            self.assertIn(code, EXTERNAL_CODES)
+            self.assertIn(code, CLOUDFLARE_CODES)
             self.assertTrue(issue_title(code).startswith("[Bob KI-Hilfe] "))
 
     def test_missing_cloudflare_codes_cannot_auto_close(self):
