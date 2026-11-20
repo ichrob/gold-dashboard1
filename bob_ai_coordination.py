@@ -39,6 +39,9 @@ HINTS = {
     "smoke-main-failed": (".github/workflows/bob-live-smoke.yml", "test_startup_health.py"),
     "collection-main-failed": (".github/workflows/bob-collection-health.yml", "test_auto_collection.py"),
     "watchdog-main-failed": (".github/workflows/bob-self-healing.yml", "test_bob_self_healing.py"),
+    # Separate Cloudflare read-only evidence, never inferred from GitHub CI.
+    "cloudflare-worker-error": ("bob_cloudflare_observability.py", "test_cloudflare_incident_routing.py"),
+    "cloudflare-observability-coverage": ("bob_cloudflare_observability.py", "test_bob_cloudflare_observability.py"),
 }
 
 
