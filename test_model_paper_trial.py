@@ -97,6 +97,8 @@ class ModelPaperTrials(unittest.TestCase):
                 price=4210. if side=='LONG' else 4190.
                 m['price']=price
                 m['direction']='SHORT' if side=='LONG' else 'LONG'
+                # A new confirmed analysis bar must postdate the entry.
+                m['analysisBarAt']=later-60000
                 b['spots']['xaus']=price
                 b['spots']['spot_price_as_of']=stamp(later-10000)
                 b['spots']['usd_eur_meta']['fetchedAt']=stamp(later-10000)
@@ -108,6 +110,24 @@ class ModelPaperTrials(unittest.TestCase):
                 self.assertFalse(out['recent'][0]['productNetVerified'])
                 self.assertEqual(out['brokerFills'],0)
                 self.assertFalse(out['realOrders'])
+
+    def test_stale_or_future_analysis_bar_cannot_invent_model_reversal(self):
+        m,b,a=fixture()
+        c=trial.evolve(trial.new_control('trend800nov',NOW),m,b,a,NOW)
+        later=NOW+600000
+        m['direction']='SHORT'
+        m['price']=4210.
+        b['spots']['xaus']=4210.
+        b['spots']['spot_price_as_of']=stamp(later-10000)
+        b['spots']['usd_eur_meta']['fetchedAt']=stamp(later-10000)
+        # Fresh spot alone does not prove a confirmed post-entry flip.
+        for bar in (NOW-300000, NOW, later+300000, None):
+            with self.subTest(bar=bar):
+                m['analysisBarAt']=bar
+                out=trial.evolve(c,m,b,a,later)
+                self.assertIsNotNone(out['active'])
+                self.assertEqual(out['completed'],0)
+                self.assertEqual(out['status'],'model-position-open')
 
     def test_neutral_and_old_quote_cannot_force_model_reversal(self):
         m,b,a=fixture()
