@@ -5815,7 +5815,7 @@ function standbyProductCandidates(products,context={}){
  return results.sort((a,b)=>b.distancePct-a.distancePct||a.isin.localeCompare(b.isin));
 }
 function renderStandbyProductRanking(products,context){
- const ready=standbyProductCandidates(products,context),neutral=!['LONG','SHORT'].includes(context?.direction);
+ const neutral=!['LONG','SHORT'].includes(context?.direction),ready=standbyProductCandidates(products,context).filter(x=>neutral||x.side===context.direction);
  return '<section data-market-waiting data-product-standby><b>ABWARTEN · '+(neutral?'kein bestätigtes LONG-/SHORT-Einstiegssignal':'aktuelle Freigabe fehlt')+'</b>'+
   '<p class="small">Produktvorbereitung ist keine Handelsfreigabe. Nur beobachtete, höchstens 90 Sekunden alte Geld-/Briefpaare mit heutigen KO-Nachweisen werden hier angezeigt.</p>'+
   (ready.length?ready.slice(0,3).map((x,i)=>'<div data-standby-product class="bob-compact-product"><b>Vorbereitet '+(i+1)+' · '+esc(x.isin)+'</b>'+renderIsinCopy(x.isin,true)+
@@ -5895,7 +5895,8 @@ function renderContinuingAnalysis(products,context){
   explanationHtml+leverageHint+
   rankable.slice(0,3).map((r,i)=>describe(r,i)).join('')+
   (rankable.length>3||unranked.length?'<details><summary>Weitere Produkte und offene Nachweise</summary>'+rankable.slice(3).map((r,i)=>describe(r,i+3)).join('')+unranked.map(r=>describe(r,null)).join('')+'</details>':'')+
-  (!rows.length?'<p>Keine Produkte erfasst.</p>':'')+'</section>';
+  (!rows.length?'<p>Keine Produkte erfasst.</p>':'')+
+  (!rankable.length?renderStandbyProductRanking(products,context):'')+'</section>';
 }
 function listVenueForSync(isin,archive=listArchive){
  const row=archive?.items?.find(x=>x.isin===isin)?.listRow;
