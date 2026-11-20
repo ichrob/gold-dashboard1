@@ -38,8 +38,10 @@ internal object ProvisionalIsinReadPolicy {
         resumedSavedCapture: Boolean
     ): List<String>? {
         if (resumedSavedCapture || !currentBatch.matches(Regex("[a-f0-9]{32}")) ||
-            receiptBatch != currentBatch || stage != "read-failed" ||
-            error != "MemoryError" || images !in 3..4 ||
+            receiptBatch != currentBatch ||
+            !((stage == "read-failed" && error == "MemoryError") ||
+              (stage == "waiting-memory" && error.isEmpty())) ||
+            images !in 3..4 ||
             local.size != 10 || local.distinct().size != local.size ||
             local.any { !SeriesEvidence.validIsin(it) }) return null
         return local.toList()

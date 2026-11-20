@@ -9,13 +9,15 @@ internal object MorningListFallbackPolicy {
     fun memoryDeferred(stage: String?, error: String?): Boolean =
         stage == "waiting-memory" || (stage == "read-failed" && error == "MemoryError")
 
-    /** Terminal memory failure: wait for a few authenticated receipts, then
-     * permit an isolated local READ only if there is no eligible prior verified
-     * batch. A valid prior batch retains priority after its 18-poll wait. */
+    /** Terminal MemoryError after six polls, or sustained waiting-memory after
+     * eighteen: permit isolated local READ only when no eligible previously
+     * verified daily batch exists. Neither route confirms the new list. */
     fun localResearchReady(attempt: Int, stage: String?, error: String?,
                            hasVerifiedEarlier: Boolean): Boolean =
-        attempt in 6..100 && stage == "read-failed" && error == "MemoryError" &&
-            !hasVerifiedEarlier
+        attempt in 6..100 && !hasVerifiedEarlier && (
+            (stage == "read-failed" && error == "MemoryError") ||
+            (attempt >= 18 && stage == "waiting-memory" && error.isNullOrEmpty())
+        )
 
     fun pollingFinished(attempt: Int, stage: String?, reason: String?): Boolean =
         attempt >= 100 || (stage == "read-failed" && reason == "OCR_MEMORY_WAIT_EXHAUSTED")

@@ -72,6 +72,8 @@ class ProvisionalIsinReadPolicyTest {
         assertNull(memory(ids=local.dropLast(1)+"INVALID"))
         assertNull(memory(receiptBatch="b".repeat(32)))
         assertNull(memory(stage="waiting-memory"))
+        assertEquals(local,memory(stage="waiting-memory",error=""))
+        assertNull(memory(stage="waiting-memory",error="MemoryError"))
         assertNull(memory(stage="synced"))
         assertNull(memory(error="ListVerificationError"))
         assertNull(memory(error="OCR_MEMORY_WAIT_EXHAUSTED"))
