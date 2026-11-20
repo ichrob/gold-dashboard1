@@ -31,10 +31,14 @@ for (const bad of [
   {...goodPlan,resource_changes:[{...goodPlan.resource_changes[0],change:{...goodPlan.resource_changes[0].change,after:{...goodPlan.resource_changes[0].change.after,create_vnic_details:[{subnet_id:'subnet',assign_public_ip:true}]}}}]},
   {...goodPlan,resource_changes:[{...goodPlan.resource_changes[0],change:{...goodPlan.resource_changes[0].change,after:{...goodPlan.resource_changes[0].change.after,source_details:[{...goodPlan.resource_changes[0].change.after.source_details[0],source_id:'unexpected'}]}}}]}
 ])assert.equal(verifyPlan(bad,networkState),false);
-function mock(jobs,text='Out of host capacity',vmPresent=false,stateStatus=200,planFile=goodPlan){
+function mock(jobs,text='Out of host capacity',vmPresent=false,stateStatus=200,planFile=goodPlan,computeInstances=[],computeHttp=200){
   writes=0; tokens=[];
   globalThis.fetch=async (url,opts)=>{
-    const p=new URL(url).pathname;
+    const u=new URL(url),p=u.pathname;
+    if(u.hostname.startsWith('iaas.')){
+      if(computeHttp!==200)return new Response('unavailable',{status:computeHttp});
+      return new Response(JSON.stringify(computeInstances),{headers:{'content-type':'application/json'}});
+    }
     let result;
     if(opts.method==='POST'){writes++;tokens.push(opts.headers['opc-retry-token']);result={id:'ocid1.ormjob.oc1..created'};}
     else if(p.endsWith('/jobs'))result=jobs;
@@ -61,6 +65,13 @@ assert.equal((await run(e)).status,'apply_submitted');assert.equal(writes,1);
 // A server already recorded in stack state always blocks another Apply.
 mock([failed],'Out of host capacity',true);
 assert.equal((await run(e)).status,'instance_present');assert.equal(writes,0);
+// State can omit an instance that Oracle Compute still lists.
+mock([failed],'Out of host capacity',false,200,goodPlan,[{displayName:'bob-ocr-zurich',shape:'VM.Standard.A1.Flex',lifecycleState:'RUNNING'}]);
+assert.equal((await run(e)).status,'compute_instance_present');assert.equal(writes,0);
+mock([failed],'Out of host capacity',false,200,goodPlan,[{displayName:'another',shape:'VM.Standard.A1.Flex',lifecycleState:'STOPPED'}]);
+assert.equal((await run(e)).status,'compute_instance_present');assert.equal(writes,0);
+mock([failed],'Out of host capacity',false,200,goodPlan,[],403);
+assert.equal((await run(e)).status,'compute_list_unavailable');assert.equal(writes,0);
 // No readable/valid Terraform state means no authority to provision.
 mock([failed],'Out of host capacity',false,403);
 assert.equal((await run(e)).status,'state_unavailable');assert.equal(writes,0);
