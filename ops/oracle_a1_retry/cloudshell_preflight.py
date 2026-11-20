@@ -117,7 +117,7 @@ def main(stack):
         # can say ABSENT while the compartment still contains an unmanaged A1.
         # This script does not start, stop, change or delete anything.
         compartment = stack_data.get('compartment-id')
-        if not isinstance(compartment, str) or not re.fullmatch(r'ocid1\\.compartment\\.oc1\\.[a-z0-9.]+', compartment):
+        if not isinstance(compartment, str) or not re.fullmatch(r'ocid1\.compartment\.oc1\.[a-z0-9.]+', compartment):
             print('RESULT=INVALID_STACK_COMPARTMENT')
             return 3
         live_status = 'UNAVAILABLE'
