@@ -162,6 +162,35 @@ class AndroidStableReleaseTests(unittest.TestCase):
         self.assertIn('LOCAL_RESEARCH_DEGIRO_RETURNED', service)
         self.assertIn('LOCAL_RESEARCH_DEGIRO_NOT_VISIBLE', service)
         self.assertIn('LOCAL_RESEARCH_SEARCH_UNAVAILABLE', service)
+        # After the server receipt releases its own wake lock, preserve a
+        # bounded non-waking screen lease ONLY for the same owner-started
+        # research ticket. Broker login remains manual, no credential text
+        # is observed, clicked, typed, or stored by this feature.
+        bridge = service.split('private fun keepLocalResearchScreen(',1)[1].split(
+            '/** One gesture then bounded semantic fallback',1)[0]
+        for guard in [
+            'PhoneRemote.active()', 'PhoneRemote.sessionId()!=ticket',
+            'isKeyguardLocked', 'isDeviceLocked', 'power.isInteractive',
+            'PowerManager.SCREEN_DIM_WAKE_LOCK',
+            'LocalResearchForegroundPolicy.MAX_WAIT_MS',
+            'LOCAL_RESEARCH_SCREEN_HELD'
+        ]: self.assertIn(guard,bridge)
+        self.assertIn('keepLocalResearchScreen(ticket)',service)
+        self.assertIn('clearLocalResearchWait()\n            PhoneRemote.stop',service)
+        self.assertIn('LocalResearchOwnerLoginPolicy.visible(descriptions)',service)
+        self.assertIn('LOCAL_RESEARCH_OWNER_LOGIN_REQUIRED',service)
+        self.assertIn('LOCAL_RESEARCH_OWNER_LOGIN_RETURNED',service)
+        self.assertIn('LOCAL_RESEARCH_OWNER_LOGIN_EXPIRED',service)
+        self.assertIn('localResearchAwaitingDegiro=false',service)
+        self.assertIn('localResearchWaitTicket=""',service)
+        self.assertIn('clearLocalResearchWait()\n            ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LOCAL_RESEARCH_SEARCH_READY)',service)
+        self.assertIn('ownerLoginTouchAllowed(foreground)',service)
+        self.assertIn('return observation("LOCAL_RESEARCH_OWNER_LOGIN_REQUIRED")',service)
+        self.assertIn('if(touchesProduct && !ownerSigningIn)',service)
+        self.assertNotIn('node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,args)',bridge)
+        auth_policy = (ROOT / "android_companion/app/src/main/java/ch/bob/degirocompanion/LocalResearchOwnerLoginPolicy.kt").read_text()
+        self.assertIn('protectedOrder',auth_policy)
+        self.assertIn('labels.any(strongPin::matches)',auth_policy)
         preflight = service.split('private fun continueLocalGoldResearch(', 1)[1].split(
             'private fun returnToSearchWhileImporting(', 1)[0]
         for guard in [

@@ -36,9 +36,60 @@ class ProductReadService : AccessibilityService() {
     private var inputFocusAttempted = false
     private var localResearchAwaitingDegiro = false
     private var localResearchWaitTicket = ""
+    private var localResearchOwnerLoginWaiting = false
+    private var localResearchLoginTicket = ""
+    private var localResearchScreenLease: PowerManager.WakeLock? = null
     private fun clearLocalResearchWait() {
         localResearchAwaitingDegiro = false
         localResearchWaitTicket = ""
+        localResearchOwnerLoginWaiting = false
+        localResearchLoginTicket = ""
+        localResearchScreenLease?.let { if(it.isHeld) it.release() }
+        localResearchScreenLease = null
+    }
+    /** The server receipt previously released its nine-minute wake lease
+     * BEFORE the owner could return to DEGIRO and finish the local ISIN read.
+     * Keep the already-unlocked display dim through this one original,
+     * owner-started research handoff. Never wake, unlock, open or log in.
+     * The lease ends on success, STOP, lock, expiry or service interruption.
+     */
+    @Suppress("DEPRECATION")
+    private fun keepLocalResearchScreen(ticket:String) {
+        if(!PhoneRemote.active() || PhoneRemote.sessionId()!=ticket ||
+            localResearchScreenLease?.isHeld==true) return
+        val power=getSystemService(POWER_SERVICE) as PowerManager
+        val keyguard=getSystemService(KEYGUARD_SERVICE) as KeyguardManager
+        if(!power.isInteractive || keyguard.isKeyguardLocked || keyguard.isDeviceLocked)return
+        runCatching {
+            power.newWakeLock(PowerManager.SCREEN_DIM_WAKE_LOCK,"Bob:OwnerGoldResearch").also {
+                localResearchScreenLease=it
+                it.setReferenceCounted(false)
+                it.acquire(LocalResearchForegroundPolicy.MAX_WAIT_MS)
+            }
+        }.onSuccess {
+            ProductReadDiagnostics.record(
+                ProductReadDiagnostics.Outcome.LOCAL_RESEARCH_SCREEN_HELD)
+        }.onFailure {
+            localResearchScreenLease=null
+            ProductReadDiagnostics.record(
+                ProductReadDiagnostics.Outcome.LOCAL_RESEARCH_SCREEN_HOLD_FAILED)
+        }
+    }
+    /** Only an authentic DEGIRO login prompt permits the OWNER to tap PIN/
+     * password controls while the automatic research is paused. This method
+     * never reads or stores the input value and never performs an action.
+     */
+    private fun ownerLoginTouchAllowed(root:AccessibilityNodeInfo):Boolean {
+        if(!localResearchOwnerLoginWaiting ||
+            localResearchLoginTicket!=PhoneRemote.sessionId() ||
+            root.packageName?.toString()!=ProductScreenEvidence.PACKAGE)return false
+        val live=mutableListOf<AccessibilityNodeInfo>()
+        val descriptions=mutableListOf<MorningReadPolicy.Node>()
+        return try {
+            navigationTree(root,live,descriptions)
+            LocalResearchOwnerLoginPolicy.visible(descriptions)
+        } catch(_:Exception) { false }
+        finally { live.forEach { it.recycle() } }
     }
     /** One gesture then bounded semantic fallback, only after local list capture. */
     private var postListGestureAttempted = false
@@ -370,6 +421,9 @@ class ProductReadService : AccessibilityService() {
                 local.all(SeriesEvidence::validIsin))
             val ticket=PhoneRemote.sessionId()
             check(PhoneRemote.active())
+            // The OCR receipt released its own dim-screen lease; carry it
+            // into the read-only research phase before Android sleeps.
+            keepLocalResearchScreen(ticket)
             continueLocalGoldResearch(local.toList(),ticket,0,
                 SystemClock.elapsedRealtime())
         }
@@ -600,8 +654,14 @@ class ProductReadService : AccessibilityService() {
         if(PhoneRemote.active() && event?.eventType==AccessibilityEvent.TYPE_TOUCH_INTERACTION_START) {
             val foreground=productRoot(false)
             val touchesProduct=foreground?.packageName?.toString()==ProductScreenEvidence.PACKAGE
+            // During a verified owner-visible DEGIRO login prompt, do not
+            // cancel the READ-ONLY return on the owner's legitimate login tap.
+            // Never intercept, enter, replay or store a credential.
+            val ownerSigningIn=touchesProduct && foreground!=null &&
+                ownerLoginTouchAllowed(foreground)
+            if(touchesProduct && !ownerSigningIn)
+                PhoneRemote.stop(this,"USER_INTERRUPTED")
             foreground?.recycle()
-            if(touchesProduct)PhoneRemote.stop(this,"USER_INTERRUPTED")
         }
         if (!ProductReadRequest.active(SystemClock.elapsedRealtime())) return
         if((MorningReadRun.running || GoldSearchRun.running) && event?.eventType==AccessibilityEvent.TYPE_TOUCH_INTERACTION_START) {
@@ -1236,6 +1296,9 @@ class ProductReadService : AccessibilityService() {
         if(!PhoneRemote.active())return observation("SESSION_EXPIRED")
         if(!getSharedPreferences("product_reader",MODE_PRIVATE).getBoolean("enabled",false))return observation("SERVICE_MISSING")
         if(!(getSystemService(POWER_SERVICE) as PowerManager).isInteractive || (getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked)return observation("SCREEN_LOCKED")
+        if(localResearchOwnerLoginWaiting &&
+            localResearchLoginTicket==PhoneRemote.sessionId())
+            return observation("LOCAL_RESEARCH_OWNER_LOGIN_REQUIRED")
         // One remotely requested, hard-coded, non-secret Termux help probe.
         // The user must have started this time-limited handset session and
         // granted Android permission. Never run an arbitrary shell command or
@@ -1881,6 +1944,7 @@ class ProductReadService : AccessibilityService() {
                     PhoneRemote.active() && PhoneRemote.sessionId()==ticket,
                     power.isInteractive && !keyguard.isKeyguardLocked &&
                         !keyguard.isDeviceLocked,brokerVisible=false)) {
+                keepLocalResearchScreen(ticket)
                 if(!localResearchAwaitingDegiro || localResearchWaitTicket!=ticket) {
                     localResearchAwaitingDegiro=true
                     localResearchWaitTicket=ticket
@@ -1901,7 +1965,12 @@ class ProductReadService : AccessibilityService() {
             return
         }
         if(localResearchAwaitingDegiro && localResearchWaitTicket==ticket) {
-            clearLocalResearchWait()
+            // Merely seeing DEGIRO again does not mean its Markets UI is
+            // ready: it may show login or be rebuilding after resume.
+            // Preserve the bounded screen lease until the exact ISIN reader
+            // actually starts or the original session is stopped.
+            localResearchAwaitingDegiro=false
+            localResearchWaitTicket=""
             ProductReadDiagnostics.record(
                 ProductReadDiagnostics.Outcome.LOCAL_RESEARCH_DEGIRO_RETURNED)
             PhoneDiagnostics.queue(this)
@@ -1909,8 +1978,11 @@ class ProductReadService : AccessibilityService() {
         val live=mutableListOf<AccessibilityNodeInfo>()
         val descriptions=mutableListOf<MorningReadPolicy.Node>()
         var returnedTowardSearch=false
+        var ownerLoginVisible=false
         val safe=try {
             navigationTree(root,live,descriptions)
+            ownerLoginVisible=LocalResearchOwnerLoginPolicy.visible(descriptions)
+            if(ownerLoginVisible) false else {
             val decision=MorningReadPolicy.localResearchDecision(
                 descriptions,local.first(),keyboardVisible(),resultOpened=false)
             val ready=decision.kind in setOf(MorningReadPolicy.Kind.SEARCH,
@@ -1949,8 +2021,42 @@ class ProductReadService : AccessibilityService() {
                 }
             }
             ready
+            }
         } catch(_:Exception) { false }
           finally { live.forEach { it.recycle() };root.recycle() }
+        if(ownerLoginVisible) {
+            val elapsed=SystemClock.elapsedRealtime()-startedAt
+            if(LocalResearchForegroundPolicy.mayWait(elapsed,
+                    PhoneRemote.active() && PhoneRemote.sessionId()==ticket,
+                    power.isInteractive && !keyguard.isKeyguardLocked &&
+                        !keyguard.isDeviceLocked,brokerVisible=false)) {
+                keepLocalResearchScreen(ticket)
+                if(!localResearchOwnerLoginWaiting || localResearchLoginTicket!=ticket) {
+                    localResearchOwnerLoginWaiting=true
+                    localResearchLoginTicket=ticket
+                    ProductReadDiagnostics.record(
+                        ProductReadDiagnostics.Outcome.LOCAL_RESEARCH_OWNER_LOGIN_REQUIRED)
+                    PhoneDiagnostics.queue(this)
+                }
+                handler.postDelayed({
+                    continueLocalGoldResearch(local,ticket,attempt,startedAt)
+                },LocalResearchForegroundPolicy.POLL_MS)
+            } else {
+                clearLocalResearchWait()
+                ProductReadDiagnostics.record(
+                    ProductReadDiagnostics.Outcome.LOCAL_RESEARCH_OWNER_LOGIN_EXPIRED)
+                PhoneDiagnostics.queue(this)
+                PhoneRemote.stop(this,"LOCAL_RESEARCH_OWNER_LOGIN_EXPIRED")
+            }
+            return
+        }
+        if(localResearchOwnerLoginWaiting && localResearchLoginTicket==ticket) {
+            localResearchOwnerLoginWaiting=false
+            localResearchLoginTicket=""
+            ProductReadDiagnostics.record(
+                ProductReadDiagnostics.Outcome.LOCAL_RESEARCH_OWNER_LOGIN_RETURNED)
+            PhoneDiagnostics.queue(this)
+        }
         if(returnedTowardSearch) {
             handler.postDelayed({
                 continueLocalGoldResearch(local,ticket,attempt+1,startedAt)
@@ -1959,6 +2065,7 @@ class ProductReadService : AccessibilityService() {
         }
         if(safe) {
             if(!PhoneRemote.active() || PhoneRemote.sessionId()!=ticket)return
+            clearLocalResearchWait()
             ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LOCAL_RESEARCH_SEARCH_READY)
             MorningReadRun.beginDiscovered(this,local,researchOnly=true)
             ProductReadRequest.start(SystemClock.elapsedRealtime())
