@@ -62,6 +62,25 @@ class OneTapCompleteFlowTest(unittest.TestCase):
         self.assertIn('if (!sessionOnly) {', service)
         self.assertIn('else if(freshGold || !MorningReadRun.resumeRecent(this)) GoldSearchRun.start()', service)
 
+    def test_verified_gold_footer_photo_precedes_phantom_webview_scroll(self):
+        # Regression from the original Samsung 10/10 Gold-list workflow.
+        # DEGIRO may advertise ACTION_SCROLL_FORWARD at the real footer.
+        # Do not lose a fourth original image to an ineffective scroll.
+        service = source("ProductReadService.kt")
+        capture = service.split("private fun captureMorningList(", 1)[1].split(
+            "private fun deliverMorningList(", 1)[0]
+        self.assertIn("MorningListEndPolicy.needsFooterRecapture(", capture)
+        self.assertIn("val footerFirst=root.windowId==listWindowId", capture)
+        self.assertIn("val candidates=if(footerFirst) emptyList() else nodes.indices.filter", capture)
+        self.assertLess(capture.index("val footerFirst="), capture.index("val candidates="))
+        self.assertLess(capture.index("val candidates="), capture.index("val chosen="))
+        # The fourth picture cannot bypass the original ten-row server gate.
+        delivery = source("MorningListDelivery.kt")
+        self.assertIn('receipt?.optString("stage")=="synced"', delivery)
+        self.assertIn('receipt.optInt("count")==10', delivery)
+        self.assertIn("onConfirmed?.invoke(plan,batch)", delivery)
+        self.assertIn("MorningReadRun.beginDiscovered(this,plan.map { it.isin },batch,", service)
+
     def test_rejected_list_shows_redacted_row_count_but_never_confirms(self):
         delivery = source("MorningListDelivery.kt")
         self.assertIn("internal fun rejectedListHint(", delivery)
