@@ -196,7 +196,13 @@ class AndroidStableReleaseTests(unittest.TestCase):
         self.assertNotIn('StopLossPrefillExecutor',service)
         self.assertNotIn('StopLossPrefillSession',service)
         self.assertNotIn('StopLossPrefillActivity',manifest)
-        self.assertNotIn('StopLossMockOrderActivity',manifest)
+        self.assertIn('<activity android:name=".StopLossSimulationActivity" android:exported="false" />',manifest)
+        self.assertIn('<activity android:name=".StopLossMockOrderActivity" android:exported="false" />',manifest)
+        self.assertIn('Stop-Loss & Stückzahl üben · nur Offline-Simulation',
+                      (ROOT / "android_companion/app/src/main/java/ch/bob/degirocompanion/ProductReadActivity.kt").read_text())
+        self.assertNotIn('StopLossPrefillExecutor',offline)
+        self.assertNotIn('StopLossPrefillExecutor',policy_only)
+        self.assertNotIn('StopLossPrefillSession',service)
         self.assertIn('MorningReadPolicy.postCaptureGoldSearchFocusIndex(', service)
         # The research-only Gold preview may have one exact unrelated
         # global "Order platzieren" launcher. It may permit only a uniquely
