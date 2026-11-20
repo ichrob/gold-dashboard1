@@ -720,11 +720,12 @@ def short_regime_brief(control):
         return {'status':'unavailable','readOnly':True,'realOrders':False,
                 'productReturnVerified':False}
     families={'trend-reentry','breakout-retest','false-breakout'}
-    options={'control','adx20','age25','drift11','rr20','stop10','risk05'}
+    options={'control','adx20','age25','drift11','rr20','stop10','risk05','closed5m-independent'}
     blockers={'awaiting-source','no-setup','original-minute-coverage',
       'closed-five-minute-coverage','five-minute-signal-not-fresh',
       'atr-unavailable','market-analysis-not-ready','original-spot-not-aligned',
       'session-closed','spot-before-closed-signal','prior-main-signal-age',
+      'independent-closed5m-not-fresh','independent-mtf-source-not-fresh',
       'spot-close-drift','original-adx-unavailable','strong-or-opposed-trend',
       'mtf-adx-not-confirmed','ema-20-50-not-confirmed','main-opposes-study',
       'stop-distance-invalid','target-room-insufficient',
@@ -733,7 +734,7 @@ def short_regime_brief(control):
     exits={'stop','target','session-exit','time-limit','no-progress','main-opposite'}
     names={f+':'+opt for f in families for opt in options}
     arms=[]
-    for row in (control.get('variants') or [])[:21]:
+    for row in (control.get('variants') or [])[:22]:
         if not isinstance(row,dict) or row.get('name') not in names:
             continue
         ls=row.get('leverageScenarios')
@@ -759,7 +760,8 @@ def short_regime_brief(control):
     at=control.get('checkedAt')
     return dict(status=control['status'],readOnly=True,realOrders=False,
         checkedAt=at if type(at) in (int,float) and math.isfinite(at) else None,
-        configurationsReported=63 if len(arms)==21 else None,
+        configurationsReported=66 if len(arms)==22 else
+        63 if len(arms)==21 else None,
         variants=arms,productReturnVerified=False,
         strategyWinnerConfirmed=False,modelCostsOnly=True,
         scope='small-original-spot-proxy-brief-no-product-fills')

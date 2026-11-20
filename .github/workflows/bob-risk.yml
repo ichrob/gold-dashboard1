@@ -19,6 +19,9 @@ on:
       - 'risk_paper.py'
       - 'paper_selection.js'
       - 'paper_simulation.py'
+      # New SHORT original-5m-only paper variants affect risk-study admission.
+      - 'gold_short_scenarios.py'
+      - 'test_gold_short_scenarios.py'
       # Price-source precedence directly affects the admissible PAPER universe.
       - 'leverage_backup.py'
       - 'test_bid_ask_chart_precedence.py'
