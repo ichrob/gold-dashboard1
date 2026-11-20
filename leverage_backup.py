@@ -15,6 +15,43 @@ from datetime import datetime, timezone
 import product_quotes as q
 
 
+def current_observed_bid_ask(result, pair, now):
+    """Prefer an independently verified *current* issuer pair over a chart.
+
+    This is only display/gearing input precedence. It never raises broker
+    execution permission, revises original clocks or makes a missing pair.
+    """
+    if (not isinstance(pair, dict) or result.get('productVerified') is not True
+            or result.get('sourceDisabled') or
+            (result.get('metadata') or {}).get('status') != 1 or
+            (result.get('metadata') or {}).get('tradingHalted') is True or
+            pair.get('currency') != 'EUR' or pair.get('estimated') or
+            pair.get('delayed')):
+        return False
+    try:
+        bid, ask = q.number(pair['bid']), q.number(pair['ask'])
+        times = [q.stamp(pair[k]) for k in ('bidAt', 'askAt', 'quoteAt')]
+        if (bid <= 0 or ask < bid or any(
+                not 0 <= (now - at).total_seconds() <= 90 for at in times)):
+            return False
+        if pair is result:
+            # The issuer's own validated original, not an unverified chart or
+            # synthetic product quote. The upstream eligible flag already
+            # binds market/trading clocks; this helper never creates it.
+            return (result.get('found') is True and
+                    result.get('eligible') is True and
+                    result.get('marketOpen') is True)
+        from comdirect_quotes import matches_primary
+        return (pair.get('isin') == result.get('isin')
+                and pair.get('priceKind') == 'market-observation'
+                and pair.get('isExecutableQuote') is False
+                and pair.get('degiroExecutable') is False
+                and times[0] == times[1] == times[2]
+                and matches_primary(result, pair))
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return False
+
+
 def select_analysis_quote(result, now=None):
     """One dated price pair for both the product display and gearing inputs."""
     now = now or datetime.now(timezone.utc)
@@ -43,7 +80,8 @@ def select_analysis_quote(result, now=None):
         if (chart.get('currency') == 'EUR' and 0 < chart_bid <= chart_ask
                 and math.isfinite(chart_ask)
                 and 0 <= (now-chart_at).total_seconds() <= MAX_INPUT_AGE_SECONDS
-                and chart_at > quote_at):
+                and chart_at > quote_at
+                and not current_observed_bid_ask(result, quote, now)):
             quote = dict(bid=chart_bid, ask=chart_ask, price=chart_ask,
                          bidAt=chart['pointAt'], askAt=chart['pointAt'],
                          quoteAt=chart['pointAt'], currency='EUR',
