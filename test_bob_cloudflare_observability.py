@@ -3,6 +3,7 @@ import unittest
 from bob_cloudflare_observability import (
     WORKERS, FREE_INGESTION_LIMIT_BYTES, central_digest,
     summarize_issues, summarize_settings, summarize_usage,
+    summarize_cron_receipts, CRON_CADENCE_SECONDS,
 )
 
 
@@ -75,6 +76,59 @@ class TestCloudflareCentral(unittest.TestCase):
         self.assertEqual(digest["usage"]["events"], 0)
         self.assertIsNone(digest["healthy"])
         self.assertFalse(digest["allWorkersObservable"])
+
+    def test_actual_cloudflare_cron_receipts_only(self):
+        now = 1795181040
+        cron = {"success": True, "result": {"calculations": [{
+            "alias": "lastScheduledEpochSeconds",
+            "aggregates": [
+                {"groupKey": "bob-watchdog-clock", "value": now - 500},
+                {"groupKey": "bob-oracle-a1-retry", "value": now - 1200.25},
+                {"groupKey": "other-private-worker", "value": now},
+            ],
+        }]}}
+        result = summarize_cron_receipts(cron, now_epoch_seconds=now)
+        self.assertEqual(result["state"], "observed")
+        self.assertTrue(result["allRecentlyObserved"])
+        self.assertEqual(result["workers"]["bob-watchdog-clock"]["state"], "recent")
+        self.assertEqual(result["workers"]["bob-oracle-a1-retry"]["lastScheduledAt"],
+                         int(now - 1200.25))
+        self.assertNotIn("other-private-worker", repr(result))
+        self.assertEqual(len(result["workers"]), len(CRON_CADENCE_SECONDS))
+
+    def test_cron_receipts_never_infer_success(self):
+        now = 1795181040
+        cron = {"success": True, "result": {"calculations": [{
+            "alias": "lastScheduledEpochSeconds",
+            "aggregates": [
+                {"groupKey": "bob-watchdog-clock", "value": now - 3700},
+            ],
+        }]}}
+        digest = central_digest(self.usage, self.issues, self.settings,
+                                cron=cron, now_epoch_seconds=now)
+        self.assertEqual(digest["cronReceipts"]["workers"]["bob-watchdog-clock"]["state"],
+                         "old-observation")
+        self.assertEqual(digest["cronReceipts"]["workers"]["bob-oracle-a1-retry"]["state"],
+                         "not-observed")
+        self.assertFalse(digest["cronReceipts"]["allRecentlyObserved"])
+        self.assertIsNone(digest["healthy"])
+        self.assertFalse(digest["newPushChannel"])
+
+    def test_malformed_cron_results_fail_closed(self):
+        now = 1795181040
+        base = {"success": True, "result": {"calculations": [{
+            "alias": "lastScheduledEpochSeconds",
+            "aggregates": [{"groupKey": "bob-oracle-a1-retry", "value": now + 1000}],
+        }]}}
+        self.assertEqual(summarize_cron_receipts(base, now_epoch_seconds=now)["state"],
+                         "unknown")
+        base["result"]["calculations"][0]["aggregates"][0]["value"] = float("nan")
+        self.assertEqual(summarize_cron_receipts(base, now_epoch_seconds=now)["state"],
+                         "unknown")
+        self.assertEqual(summarize_cron_receipts({"success": False}, now_epoch_seconds=now)["state"],
+                         "unknown")
+        self.assertEqual(summarize_cron_receipts(base, now_epoch_seconds=None)["state"],
+                         "unknown")
 
 
 if __name__ == "__main__":
