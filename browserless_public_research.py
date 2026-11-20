@@ -295,16 +295,23 @@ PANEL = r"""
 (()=>{const section=document.getElementById('bobBrowserlessPublic');if(!section)return;
  const button=section.querySelector('#bobBlRun'),output=section.querySelector('#bobBlResult');
  const status=section.querySelector('#bobBlStatus');
+ const input=section.querySelector('#bobBlIsin'),selector=section.querySelector('#bobBlSource');
+ let canStart=false,submitted=null;
+ const selected=()=>input.value.trim().toUpperCase()+'|'+selector.value;
+ const refresh=()=>{button.disabled=!canStart||selected()===submitted};
  button.disabled=true;
+ input.addEventListener('input',refresh);
+ selector.addEventListener('change',refresh);
  fetch('/api/browserless/public-status',{credentials:'same-origin',cache:'no-store'})
   .then(r=>{if(!r.ok)throw Error();return r.json()})
-  .then(d=>{status.textContent='Bereitschaft: '+d.state+'. Nur öffentlicher, einmaliger Test.';button.disabled=!d.canStart})
-  .catch(()=>{status.textContent='Bereitschaft momentan nicht prüfbar';button.disabled=true});
+  .then(d=>{status.textContent='Bereitschaft: '+d.state+'. Nur öffentlicher, einmaliger Test.';canStart=!!d.canStart;refresh()})
+  .catch(()=>{status.textContent='Bereitschaft momentan nicht prüfbar';canStart=false;refresh()});
  button.addEventListener('click',async()=>{
-  const isin=section.querySelector('#bobBlIsin').value.trim().toUpperCase();
-  const source=section.querySelector('#bobBlSource').value;
+  const isin=input.value.trim().toUpperCase();
+  const source=selector.value;
   if(!/^DE[A-Z0-9]{10}$/.test(isin)){output.textContent='Ungültige ISIN';return}
-  button.disabled=true;output.textContent='Öffentliche Seite wird einmal geprüft …';
+  if(!canStart||selected()===submitted)return;
+  submitted=selected();refresh();output.textContent='Öffentliche Seite wird einmal geprüft …';
   try{
    const response=await fetch('/api/browserless/public-research',{
     method:'POST',credentials:'same-origin',
@@ -320,7 +327,7 @@ PANEL = r"""
    };
    output.textContent=(help[data.state]?help[data.state]+'\n\n':'')+JSON.stringify(data,null,2);
   }catch{output.textContent='Recherche derzeit nicht verfügbar. Keine Daten verändert.'}
-  finally{button.disabled=false}
+  finally{refresh()}
  });
 })();
 </script>
