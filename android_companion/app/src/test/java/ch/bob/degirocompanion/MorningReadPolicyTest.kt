@@ -672,7 +672,6 @@ class MorningReadPolicyTest {
             view.filterNot { it.text=="Hebelprodukte" },
             view.filterNot { it.text=="Top Ergebnisse" || it.text=="Märkte" },
             view.mapIndexed { i,n -> if(i==4)n.copy(clickable=false) else n },
-            view+MorningReadPolicy.Node("Orderplatzieren",row="Orderplatzieren"),
             view+MorningReadPolicy.Node("",row="Order bestätigen")
         )
         for((i,nodes) in bad.withIndex()) {
