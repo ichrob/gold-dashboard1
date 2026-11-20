@@ -254,6 +254,12 @@ class ProductReadActivity : Activity() {
         // the existing one-ISIN verified refresh path and does not manufacture
         // or persist a market-entry signal, create a trade, or grant a remote
         // broker-control session beyond the ordinary product-reading gates.
+        button("Stop-Loss & Stückzahl üben · nur Offline-Simulation") {
+            // Reuse PR #1790's successful non-broker mock. This launches
+            // ONLY our non-exported simulation screen and cannot arm the
+            // ProductReadService or access an actual DEGIRO order.
+            startActivity(Intent(this,StopLossSimulationActivity::class.java))
+        }
         button("Einstiegskurs-Navigation sofort testen · ohne Signal") {
             chooseEntryNavigationTest()
         }
