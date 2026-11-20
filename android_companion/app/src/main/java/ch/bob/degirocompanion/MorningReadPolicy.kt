@@ -668,7 +668,8 @@ internal object MorningReadPolicy {
                 i!=launcher && canClick(n) &&
                     (search(n) || rowSearch(n))
             }) return null
-        return if(searchButtons.size==1) Action(Kind.SEARCH,searchButtons.single())
+        return if(searchButtons.size==1) Action(Kind.SEARCH,
+                searchButtons.single(),code="GOLD_GLOBAL_LAUNCHER_SEARCH")
             else if(searchButtons.isEmpty()) Action(Kind.WAIT,code="GOLD_SEARCH_REBUILDING")
             else null
     }
