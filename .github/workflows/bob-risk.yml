@@ -19,6 +19,9 @@ on:
       - 'risk_paper.py'
       - 'paper_selection.js'
       - 'paper_simulation.py'
+      # Price-source precedence directly affects the admissible PAPER universe.
+      - 'leverage_backup.py'
+      - 'test_bid_ask_chart_precedence.py'
       - 'test_risk*'
       - 'background_analysis.js'
       - 'background_push.py'
