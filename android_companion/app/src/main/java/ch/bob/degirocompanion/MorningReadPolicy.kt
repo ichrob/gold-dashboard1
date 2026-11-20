@@ -701,6 +701,58 @@ internal object MorningReadPolicy {
      * search field; ordinary detailDecision still owns result/card/return
      * decisions and every protected order/input surface still blocks.
      */
+    /** Pure, passive classification for the short window immediately after
+     * an owner-initiated Gold research handoff. A virtualized WebView may drop
+     * the search input for a few frames while leaving the standalone global
+     * Order launcher. This can authorize a NO-ACTION RETRY only: never FOCUS,
+     * QUERY, click, photo, quote, broker order, or a new session. The caller
+     * must additionally enforce its original ticket/window and a short clock
+     * deadline. Real order fields and ambiguous views still fail closed. */
+    fun passiveGoldSearchRebuild(nodes: List<Node>): Boolean {
+        if (nodes.isEmpty() || nodes.size>500 || genericTurboDirectory(nodes) ||
+            protection(nodes)!="PROTECTED_ORDER_CONFIRM" ||
+            nodes.any { it.editable || it.containsInput || it.password || it.sensitive })
+            return false
+        fun exact(value:String,label:String)=normalized(value).equals(label,true)
+        if (nodes.none { n -> setOf("Märkte","Hebelprodukte","Top Ergebnisse")
+                .any { exact(n.text,it) } }) return false
+        val prohibited=Regex("(?iu)order bestätigen|confirm order|orderart|ordertyp|limitpreis|stückzahl|anzahl kaufen|passwort|password|login|anmelden|kursdaten|produktdetails|orderübersicht|orderdetails")
+        if (nodes.any { n ->
+            listOf(n.text,n.description,n.hint,n.row)
+                .any(prohibited::containsMatchIn)
+        }) return false
+        val markers=nodes.indices.filter { i ->
+            listOf(nodes[i].text,nodes[i].description,nodes[i].hint)
+                .any(orderMarkers.first().second::containsMatchIn)
+        }
+        val index=markers.singleOrNull() ?: return false
+        val launcher=nodes[index]
+        val exactOrder=Regex("(?iu)^(order platzieren|place order)$")
+        if(!canClick(launcher) || launcher.editable || launcher.containsInput ||
+            listOf(launcher.text,launcher.description,launcher.hint,launcher.row)
+                .filter(String::isNotBlank)
+                .let { it.isEmpty() || it.any { v -> !exactOrder.matches(normalized(v)) } })
+            return false
+        fun below(child:Int,ancestor:Int):Boolean {
+            var at=nodes[child].parent;var count=0
+            while(at in nodes.indices && count++<nodes.size) {
+                if(at==ancestor)return true
+                at=nodes[at].parent
+            }
+            return false
+        }
+        if(nodes.indices.any { it!=index && below(it,index) }) return false
+        val id=Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b")
+        var at=launcher.parent;var hops=0
+        while(at in nodes.indices && hops++<nodes.size) {
+            val n=nodes[at]
+            if(id.containsMatchIn(n.text.uppercase()) ||
+                id.containsMatchIn(n.row.uppercase())) return false
+            at=n.parent
+        }
+        return true
+    }
+
     fun localResearchDecision(nodes: List<Node>, target: String,
                               keyboardReady: Boolean = true,
                               resultOpened: Boolean = true): Action {
