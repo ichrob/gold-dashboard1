@@ -148,6 +148,8 @@ jobs:
           NODE_PATH=/tmp/bob-video-browser/node_modules timeout --signal=TERM --kill-after=10s 120s node browser_market_ui.cjs
           echo "CI browser: browser_simple_home.cjs"
           NODE_PATH=/tmp/bob-video-browser/node_modules timeout --signal=TERM --kill-after=10s 120s node browser_simple_home.cjs
+          echo "CI browser: browser_browserless_mobile_nav.cjs"
+          NODE_PATH=/tmp/bob-video-browser/node_modules timeout --signal=TERM --kill-after=10s 120s node browser_browserless_mobile_nav.cjs
           echo "CI browser: browser_unified_workspace.cjs"
           NODE_PATH=/tmp/bob-video-browser/node_modules timeout --signal=TERM --kill-after=10s 120s node browser_unified_workspace.cjs
           NODE_PATH=/tmp/bob-video-browser/node_modules timeout --signal=TERM --kill-after=10s 120s node browser_android_observations.cjs
