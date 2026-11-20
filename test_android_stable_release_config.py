@@ -143,6 +143,8 @@ class AndroidStableReleaseTests(unittest.TestCase):
         self.assertIn('if(category) MorningReadPolicy.Kind.CATEGORY', tap)
         self.assertIn('action.kind!=required || (input && category)', tap)
         self.assertIn('target.isEditable!=input', tap)
+        self.assertIn('else if(MorningReadRun.researchOnlyActive()) MorningReadPolicy.localResearchDecision(', tap)
+        self.assertIn('descriptions,MorningReadRun.target,keyboardVisible(),resultOpened=batchResultOpened)', tap)
         self.assertIn('tapRecognizedSearch(root.windowId,category=true)', service)
         # When Samsung focus alone leaves the IME closed, use only one
         # additional semantic ACTION_CLICK on the exact verified product
