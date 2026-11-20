@@ -202,8 +202,15 @@ def evolve(control, market, bundle, audit, now):
         # not a broker order. Require a genuinely newer original spot than
         # entry; an old trend decision cannot manufacture a reversal fill.
         opposite='SHORT' if position['direction']=='LONG' else 'LONG'
+        # The direction must come from a newly completed market-analysis
+        # bar, not merely a newly fetched spot against an entry-era signal.
+        bar_at=market.get('analysisBarAt')
+        confirmed_new_bar=(type(bar_at) in (int,float) and
+            math.isfinite(bar_at) and position['enteredAt']<bar_at<=now)
+        source_at=timestamp(spots.get('spot_price_as_of'))
         hit_reversal=(market.get('direction')==opposite and
-            timestamp(spots.get('spot_price_as_of'))>position['enteredAt'])
+            confirmed_new_bar and source_at is not None and
+            source_at>max(position['enteredAt'],bar_at))
         if not (hit_ko or hit_stop or hit_target or timed_out or hit_reversal):
             c.update(status='model-position-open',
                      reason='Modellposition offen; Original-Spot/FX frisch, Modellbewertung hypothetisch')
