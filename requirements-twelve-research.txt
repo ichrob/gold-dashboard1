@@ -1,0 +1,5 @@
+# Optional manual research runner only. Does not activate providers or services.
+# Termux also needs its libpq package (client only, no PostgreSQL server).
+psycopg==3.2.10
+tzdata==2026.6
+cryptography>=46.0.3
