@@ -48,9 +48,11 @@ internal object MorningListEndPolicy {
         seen.all(SeriesEvidence::validIsin) &&
         covered.all { it in seen } && covered.size<10
 
-    /** On a verified read-only footer, one final cropped photo may clarify a
-     * tenth row present in pixels but not reliably represented in WebView text.
-     * The server must still validate ten distinct complete product rows. */
+    /** On a verified read-only footer, one final cropped photo may clarify
+     * rows missing from the virtualized WebView text. Android may locally see
+     * only 5..8 identities even when independent server OCR extracts nine.
+     * At most four original photos; the server must still validate all ten
+     * distinct complete product rows before approving the list. */
     private val footerProtection = Regex(
         "(?iu)order platzieren|order bestätigen|place order|confirm order|" +
             "orderart|ordertyp|limitpreis|stückzahl|anzahl kaufen|passwort|password|login|anmelden"
@@ -58,12 +60,11 @@ internal object MorningListEndPolicy {
     fun needsFooterRecapture(nodes: List<MorningReadPolicy.Node>,
                              capturedImages: Int, seen: Set<String>,
                              current: List<String>, action: MorningReadPolicy.Action): Boolean =
-        capturedImages == 3 && seen.size == 9 &&
+        capturedImages == 3 && seen.size in 5..9 &&
         seen.all(SeriesEvidence::validIsin) &&
-        // Samsung can expose only the few footer rows while nine earlier
-        // identities were already captured. Requiring all ten identities on
-        // this ONE footer screen made the safe fourth recapture unreachable
-        // and sent only three images with nine server-verified rows.
+        // Samsung's local accessibility tree can see fewer rows than
+        // server-side OCR (for example, 6 local vs 9 server-confirmed).
+        // The footer photo is bounded to this known, safe read-only context.
         current.isNotEmpty() && current.size<=10 &&
         current.distinct()==current &&
         current.all { SeriesEvidence.validIsin(it) && it in seen } &&
