@@ -759,6 +759,47 @@ class MorningReadPolicyTest {
             MorningReadPolicy.Node("V",clickable=true))
     }
 
+    @Test fun ownerGoldListCaptureCanRefocusOnlyItsSameVerifiedSearchInput() {
+        fun valid(n:Int):String {
+            val prefix="DE000ZX"+n.toString().padStart(4,'0')
+            return ('0'..'9').map { prefix+it }
+                .single { SeriesEvidence.validIsin(it) }
+        }
+        val captured=(1..10).map(::valid).toSet()
+        val field=MorningReadPolicy.Node("Gold",id="search-input",editable=true,
+            focused=false,clickAction=true)
+        val verified=listOf(field,MorningReadPolicy.Node("Hebelprodukte",selected=true))
+        assertEquals(0,MorningReadPolicy.postCaptureGoldSearchFocusIndex(
+            verified,captured))
+        // Samsung can omit the selected attribute after scrolling to header,
+        // but the original Gold Top Results section still establishes context.
+        assertEquals(0,MorningReadPolicy.postCaptureGoldSearchFocusIndex(
+            listOf(field,MorningReadPolicy.Node("Hebelprodukte"),
+                MorningReadPolicy.Node("Top Ergebnisse")),captured))
+        assertNull(MorningReadPolicy.postCaptureGoldSearchFocusIndex(verified,
+            captured.take(9).toSet()))
+        assertNull(MorningReadPolicy.postCaptureGoldSearchFocusIndex(verified,
+            captured.drop(1).toSet()+"INVALID"))
+        assertNull(MorningReadPolicy.postCaptureGoldSearchFocusIndex(
+            listOf(field),captured))
+        // This is an ACTIVATE-only operation on the already captured list:
+        // Samsung may omit tab selected-state when the search header returns.
+        assertEquals(0,MorningReadPolicy.postCaptureGoldSearchFocusIndex(
+            listOf(field,MorningReadPolicy.Node("Hebelprodukte")),captured))
+        assertNull(MorningReadPolicy.postCaptureGoldSearchFocusIndex(
+            verified.mapIndexed { i,n -> if(i==0)n.copy(text="DE000ZX000001") else n },captured))
+        assertNull(MorningReadPolicy.postCaptureGoldSearchFocusIndex(
+            verified.mapIndexed { i,n -> if(i==0)n.copy(id="",hint="",description="") else n },captured))
+        assertNull(MorningReadPolicy.postCaptureGoldSearchFocusIndex(
+            verified+field.copy(text=""),captured))
+        assertNull(MorningReadPolicy.postCaptureGoldSearchFocusIndex(
+            verified+MorningReadPolicy.Node("Passwort",password=true),captured))
+        assertNull(MorningReadPolicy.postCaptureGoldSearchFocusIndex(
+            verified+MorningReadPolicy.Node("Stückzahl",editable=true),captured))
+        assertNull(MorningReadPolicy.postCaptureGoldSearchFocusIndex(
+            verified+MorningReadPolicy.Node("Order bestätigen"),captured))
+    }
+
     @Test fun headerOnlyAfterScrollingBackAllowsOnlyExactGoldSearchField() {
         val target="DE000FD0S0G4"
         val field=MorningReadPolicy.Node("Gold",id="search-input",

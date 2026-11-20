@@ -34,6 +34,8 @@ class ProductReadService : AccessibilityService() {
     private var inputTapAttempted = false
     private var inputClickAttempted = false
     private var inputFocusAttempted = false
+    /** One gesture then bounded semantic fallback, only after local list capture. */
+    private var postListGestureAttempted = false
     private var nativeBackSteps = 0
     private var categorySteps = 0
     /** Scope-only extension for the explicitly started full Gold list. All
@@ -1411,8 +1413,17 @@ class ProductReadService : AccessibilityService() {
     }
 
     /** Local-only fallback. No caller-supplied coordinates and no result/order taps. */
-    private fun tapRecognizedSearch(expectedWindow: Int, input: Boolean = false, category: Boolean = false, productResult: Boolean = false, remoteQuery: String? = null, remoteSession: String? = null, allResults: Boolean = false): Boolean {
-        fun authorized(): Boolean = PhoneRemote.active() && if(remoteQuery == null) {
+    private fun tapRecognizedSearch(expectedWindow: Int, input: Boolean = false, category: Boolean = false, productResult: Boolean = false, remoteQuery: String? = null, remoteSession: String? = null, allResults: Boolean = false, postListCaptured: Set<String>? = null): Boolean {
+        fun authorized(): Boolean = PhoneRemote.active() && if(postListCaptured != null) {
+            // No text entry while OCR is pending; just re-open the exact Gold
+            // input that Samsung hides during the list scroll. No order/card.
+            input && !category && !productResult && !allResults && remoteQuery==null &&
+                MorningListDelivery.waiting && !keyboardVisible() &&
+                !ProductReadRequest.active(SystemClock.elapsedRealtime()) &&
+                !MorningReadRun.running && !GoldSearchRun.running &&
+                postListCaptured.size==10 &&
+                postListCaptured.all(SeriesEvidence::validIsin)
+        } else if(remoteQuery == null) {
             ProductReadRequest.active(SystemClock.elapsedRealtime())
         } else {
             remoteSession == PhoneRemote.sessionId() &&
@@ -1432,7 +1443,11 @@ class ProductReadService : AccessibilityService() {
         try {
             if(root.windowId!=expectedWindow || root.packageName?.toString()!=ProductScreenEvidence.PACKAGE) return false
             navigationTree(root,live,descriptions)
-            val action=if(remoteQuery != null) {
+            val action=if(postListCaptured != null) {
+                val index=MorningReadPolicy.postCaptureGoldSearchFocusIndex(
+                    descriptions,postListCaptured) ?: return false
+                MorningReadPolicy.Action(MorningReadPolicy.Kind.FOCUS,index)
+            } else if(remoteQuery != null) {
                 if(remoteQuery == "Gold") MorningReadPolicy.discoverGold(descriptions)
                 else MorningReadPolicy.ownerProductDecision(descriptions,remoteQuery,keyboardVisible())
             } else if(MorningReadRun.researchOnlyActive()) MorningReadPolicy.localResearchDecision(
@@ -1842,7 +1857,7 @@ class ProductReadService : AccessibilityService() {
      * while remote OCR is pending; DO NOT type any ISIN until ten rows are
      * confirmed by the existing server gate. Bound the scroll and window. */
     private fun returnToSearchWhileImporting(expectedWindow:Int, captured:Set<String>, attempt:Int) {
-        if(attempt>=4 || !MorningListDelivery.waiting || !PhoneRemote.active() ||
+        if(attempt>=6 || !MorningListDelivery.waiting || !PhoneRemote.active() ||
             MorningReadRun.running || GoldSearchRun.running) return
         if(!(getSystemService(POWER_SERVICE) as PowerManager).isInteractive ||
             (getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked) return
@@ -1852,7 +1867,42 @@ class ProductReadService : AccessibilityService() {
         try {
             if(root.windowId!=expectedWindow || root.packageName?.toString()!=ProductScreenEvidence.PACKAGE) return
             navigationTree(root,live,descriptions)
-            if(descriptions.any { it.editable && MorningReadPolicy.isSearchInput(it.id,it.description,it.hint) }) return
+            val focusIndex=MorningReadPolicy.postCaptureGoldSearchFocusIndex(
+                descriptions,captured)
+            if(focusIndex!=null) {
+                // The list is already captured. Samsung dismissed the input
+                // during list scrolling, so re-activate it by the SAME verified
+                // gesture used before capture. Do not write any ISIN until an
+                // independently authenticated server decision begins reading.
+                if(keyboardVisible())return
+                if(!postListGestureAttempted) {
+                    postListGestureAttempted=true
+                    val sent=tapRecognizedSearch(expectedWindow,input=true,
+                        postListCaptured=captured)
+                    ProductReadDiagnostics.record(if(sent)
+                        ProductReadDiagnostics.Outcome.POST_LIST_SEARCH_TAP_SENT
+                        else ProductReadDiagnostics.Outcome.POST_LIST_SEARCH_TAP_REJECTED)
+                    handler.postDelayed({
+                        returnToSearchWhileImporting(expectedWindow,captured,attempt+1)
+                    },650)
+                } else if(attempt<5) {
+                    // A WebView may acknowledge the gesture without opening
+                    // Samsung IME. Only a bounded ACTION_CLICK / ACTION_FOCUS
+                    // fallback on that same visible, classified EditText.
+                    val accepted=focusSearch(live[focusIndex])
+                    ProductReadDiagnostics.record(if(accepted)
+                        ProductReadDiagnostics.Outcome.POST_LIST_SEARCH_FOCUS_SENT
+                        else ProductReadDiagnostics.Outcome.POST_LIST_SEARCH_FOCUS_REJECTED)
+                    if(accepted)handler.postDelayed({
+                        returnToSearchWhileImporting(expectedWindow,captured,attempt+1)
+                    },650)
+                }
+                return
+            }
+            // Do not scroll an already visible but unverified input into an
+            // arbitrary launcher; the field/context must pass the policy.
+            if(descriptions.any { it.editable &&
+                MorningReadPolicy.isSearchInput(it.id,it.description,it.hint) }) return
             val backward=live.indices.filter { i ->
                 val n=live[i]
                 n.isVisibleToUser && n.isEnabled && !n.isEditable && !n.isPassword &&
@@ -1885,6 +1935,9 @@ class ProductReadService : AccessibilityService() {
             .put("localCandidates",org.json.JSONArray(listSeenIds.toList()))
         val captured=listSeenIds.toSet()
         val capturedWindow=listWindowId
+        postListGestureAttempted=false
+        inputClickAttempted=false
+        inputFocusAttempted=false
         MorningListDelivery.start(this,body)
         checkpoint().delete()
         GoldSearchRun.stop(if(listSeenIds.size==10) "LIST_IMAGES_DELIVERED"
