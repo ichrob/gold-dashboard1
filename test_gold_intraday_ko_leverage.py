@@ -137,7 +137,7 @@ class IntradayKoLeverageTest(unittest.TestCase):
                 market["dataAt"]=later+30000-1000
                 market["price"]=3700.+sign*35
                 for quote in quotes.values():
-                    quote["bidAt"]=later+30000-1000
+                    quote["bidAt"]=later+30000
                     quote["askAt"]=later+30000-1000
                 p1,p2,p3,p4,p5=self._patch()
                 with p1,p2,p3,p4,p5:
