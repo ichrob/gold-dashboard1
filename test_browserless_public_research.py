@@ -168,6 +168,33 @@ Knock-Out-Barriere 4.151,2285 USD
         self.assertFalse(result["originalQuoteTimeVerified"])
         post.assert_called_once()
 
+    def test_html_only_identity_is_diagnostic_not_approval(self):
+        response=MagicMock()
+        response.status_code=200
+        body={"ok":True,"statusCode":200,"strategy":"browser",
+              "markdown":"# SG website home\nLots of content, no product",
+              "rawText":"SG navigation products generic",
+              "content":"<html><script>const product='DE000FB0A490';</script></html>",
+              "metadata":{"title":"SG Zertifikate - Startseite","sourceURL":"https://www.sg-zertifikate.de/product-details/fb0a49"},
+              "attempted":["http-fetch","http-proxy","browser"],
+              "json":None}
+        response.iter_content.return_value=[json.dumps(body).encode()]
+        with patch.dict(os.environ, {"BROWSERLESS_API_TOKEN":"secret",
+                                     "BOB_BROWSERLESS_PUBLIC_RESEARCH":"1",
+                                     "BOB_BROWSERLESS_FREE_ACCOUNT_CONFIRMED":"1"}),patch.object(b.requests,"post") as post:
+            post.return_value.__enter__.return_value=response
+            result=b.extract("DE000FB0A490",now=self.now)
+        self.assertEqual(result["state"],"identity-not-proven")
+        self.assertTrue(result["diagnostics"]["hasExactIsinInRawHtmlOnly"])
+        self.assertFalse(result["diagnostics"]["hasExactIsinInRawTextOnly"])
+        self.assertEqual(result["diagnostics"]["browserlessRegion"],"ams")
+        self.assertEqual(result["diagnostics"]["strategyAttempted"],["http-fetch","http-proxy","browser"])
+        self.assertEqual(result["diagnostics"]["sourceTitleClass"],"issuer-generic")
+        self.assertFalse(result["tradeApproved"])
+        self.assertFalse(result["fields"])
+        self.assertNotIn("DE000FB0A490';</script>",json.dumps(result))
+        self.assertNotIn("secret",json.dumps(result))
+
     def test_sg_wkn_lookalikes_are_not_identity(self):
         isin = "DE000FB0A490"
         valid = "## FB0A49\nStammdaten\nBasiswert Gold\nKnock-Out-Barriere 4151 USD"
