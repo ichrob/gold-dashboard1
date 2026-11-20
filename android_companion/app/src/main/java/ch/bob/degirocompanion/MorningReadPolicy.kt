@@ -630,13 +630,25 @@ internal object MorningReadPolicy {
                 return null
             ancestor=nodes[ancestor].parent
         }
+        fun nestedInProduct(index:Int):Boolean {
+            var p=nodes[index].parent;var steps=0
+            while(p in nodes.indices && steps++<nodes.size) {
+                val title=nodes[p].text
+                if(ids.containsMatchIn(title.uppercase()) ||
+                    (Regex("(?iu)\\b(gold|xau)\\b").containsMatchIn(title) &&
+                     Regex("(?iu)\\b(turbo|knock[ -]?out)\\b").containsMatchIn(title)))
+                    return true
+                p=nodes[p].parent
+            }
+            return false
+        }
         // If the search bar is temporarily virtualized, open only an
         // individually labelled, uniquely clickable search control.
         // Do not choose an account icon, result row or K/V control.
         val searchButtons=innermost(nodes,nodes.indices.filter { i ->
             val n=nodes[i]
             i!=launcher && !descendant(i,launcher) && !descendant(launcher,i) &&
-                canClick(n) && !n.editable && !n.containsInput &&
+                !nestedInProduct(i) && canClick(n) && !n.editable && !n.containsInput &&
                 !n.sensitive && !n.password &&
                 listOf(n.text,n.description,n.hint,n.row)
                     .filter(String::isNotBlank).let { labels ->
