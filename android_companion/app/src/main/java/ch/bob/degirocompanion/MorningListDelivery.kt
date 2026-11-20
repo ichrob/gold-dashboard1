@@ -218,12 +218,27 @@ internal object MorningListDelivery {
                         }
                     } else if(MorningListFallbackPolicy.memoryDeferred(
                             receipt?.optString("stage"),receipt?.optString("error")) &&
-                        (attempt>=18 || resumeSavedCapture) &&
+                        response?.optString("batchId")==batch &&
+                        (attempt>=6 || resumeSavedCapture) &&
                         PhoneRemote.active() && PhoneRemote.sessionId()==session) {
                         val earlier=response?.optString("existingListBatchId").orEmpty()
                         val ids=response?.optJSONArray("existingDetailIsins")
                         val values=if(ids==null) null else (0 until ids.length()).map { ids.optString(it) }
                         val plan=values?.let { SelectiveDetailPlan.parse(response?.optJSONArray("existingDetailPlan"),it) }
+                        val verifiedEarlier=MorningListFallbackPolicy.allowed(18,batch,earlier,plan)
+                        val raw=body.optJSONArray("localCandidates")
+                        val observed=if(raw==null) emptyList() else
+                            (0 until raw.length()).map { raw.optString(it) }
+                        val local=if(MorningListFallbackPolicy.localResearchReady(
+                                attempt,receipt?.optString("stage"),receipt?.optString("error"),
+                                hasVerifiedEarlier=verifiedEarlier)) {
+                            ProvisionalIsinReadPolicy.memoryCandidates(
+                                observed,batch,response?.optString("batchId").orEmpty(),
+                                receipt?.optString("stage").orEmpty(),
+                                receipt?.optString("error").orEmpty(),
+                                body.optJSONArray("images")?.length() ?: 0,
+                                resumedSavedCapture=resumeSavedCapture)
+                        } else null
                         if(MorningListFallbackPolicy.allowed(attempt,batch,earlier,plan,
                                 resumedSavedCapture=resumeSavedCapture)) {
                             // The currently captured images remain durable and
@@ -235,6 +250,26 @@ internal object MorningListDelivery {
                             runCatching { onConfirmed?.invoke(plan!!,earlier) }.onFailure {
                                 status(c,"Bestätigte Tagesliste erhalten; Detailprüfung konnte nicht gestartet werden.")
                                 PhoneRemote.stop(c,"STORAGE_ERROR")
+                            }
+                        } else if(local!=null && onProvisionalResearch!=null) {
+                            // Server MemoryError is NOT list validation. Keep
+                            // the original batch in the durable quarantine,
+                            // then use only the SAME owner-started unlocked
+                            // session and on-device observed identities for
+                            // read-only ISIN research. Never update ranking.
+                            val archivedReady=runCatching {
+                                save(c,JSONObject(body.toString()).put("verificationFailed",true))
+                            }.isSuccess
+                            waiting=false
+                            if(!archivedReady) {
+                                status(c,"Originalbilder konnten nicht sicher gespeichert werden. Keine lokale ISIN-Recherche.")
+                                PhoneRemote.stop(c,"STORAGE_ERROR")
+                            } else {
+                                status(c,"Goldliste wegen Serverspeicher nicht bestätigt. Bob prüft zehn lokal beobachtete ISINs ausschließlich lesend; keine Handels- oder Rankingfreigabe.")
+                                runCatching { onProvisionalResearch?.invoke(local) }.onFailure {
+                                    status(c,"Lokale ISIN-Recherche konnte die sichere Suchansicht nicht bestätigen. Originalbilder bleiben gespeichert.")
+                                    PhoneRemote.stop(c,"LOCAL_RESEARCH_START_BLOCKED")
+                                }
                             }
                         } else {
                             if(MorningListFallbackPolicy.pollingFinished(attempt,

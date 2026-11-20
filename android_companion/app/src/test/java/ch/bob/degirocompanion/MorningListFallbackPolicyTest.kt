@@ -45,4 +45,22 @@ class MorningListFallbackPolicyTest {
         assertFalse(MorningListFallbackPolicy.allowed(18, pending, previous, emptyList()))
         assertFalse(MorningListFallbackPolicy.allowed(18, pending, previous, plan + plan))
     }
+
+    @Test fun memoryOnlyResearchNeedsTerminalReceiptAndNoVerifiedPriorPlan() {
+        fun ready(attempt:Int, stage:String?="read-failed", error:String?="MemoryError",
+                  prior:Boolean=false) =
+            MorningListFallbackPolicy.localResearchReady(attempt,stage,error,prior)
+        assertFalse(ready(0))
+        assertFalse(ready(5))
+        assertTrue(ready(6))
+        assertTrue(ready(18))
+        assertTrue(ready(100))
+        assertFalse(ready(101))
+        assertFalse(ready(6,prior=true))
+        assertFalse(ready(18,prior=true))
+        assertFalse(ready(6,stage="waiting-memory"))
+        assertFalse(ready(6,stage="synced"))
+        assertFalse(ready(6,error="ListVerificationError"))
+        assertFalse(ready(6,error=null))
+    }
 }
