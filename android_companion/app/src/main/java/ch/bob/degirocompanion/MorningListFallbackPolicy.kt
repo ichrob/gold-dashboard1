@@ -14,8 +14,10 @@ internal object MorningListFallbackPolicy {
      * batch. A valid prior batch retains priority after its 18-poll wait. */
     fun localResearchReady(attempt: Int, stage: String?, error: String?,
                            hasVerifiedEarlier: Boolean): Boolean =
-        attempt in 6..100 && stage == "read-failed" && error == "MemoryError" &&
-            !hasVerifiedEarlier
+        attempt in 6..100 && !hasVerifiedEarlier && (
+            (stage == "read-failed" && error == "MemoryError") ||
+            (attempt >= 18 && stage == "waiting-memory" && error.isNullOrEmpty())
+        )
 
     fun pollingFinished(attempt: Int, stage: String?, reason: String?): Boolean =
         attempt >= 100 || (stage == "read-failed" && reason == "OCR_MEMORY_WAIT_EXHAUSTED")
