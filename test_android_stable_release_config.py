@@ -200,8 +200,10 @@ class AndroidStableReleaseTests(unittest.TestCase):
         self.assertIn('<activity android:name=".StopLossMockOrderActivity" android:exported="false" />',manifest)
         self.assertIn('Stop-Loss & Stückzahl üben · nur Offline-Simulation',
                       (ROOT / "android_companion/app/src/main/java/ch/bob/degirocompanion/ProductReadActivity.kt").read_text())
-        self.assertNotIn('StopLossPrefillExecutor',offline)
-        self.assertNotIn('StopLossPrefillExecutor',policy_only)
+        # Source comments may identify the deliberately excluded executor,
+        # but neither pure class may invoke its real broker action.
+        self.assertNotIn('StopLossPrefillExecutor.execute(',offline)
+        self.assertNotIn('StopLossPrefillExecutor.execute(',policy_only)
         self.assertNotIn('StopLossPrefillSession',service)
         self.assertIn('MorningReadPolicy.postCaptureGoldSearchFocusIndex(', service)
         # The research-only Gold preview may have one exact unrelated
