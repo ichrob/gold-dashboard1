@@ -160,6 +160,25 @@ class AndroidStableReleaseTests(unittest.TestCase):
         self.assertIn('LOCAL_RESEARCH_DEGIRO_NOT_VISIBLE', service)
         self.assertIn('LOCAL_RESEARCH_SEARCH_UNAVAILABLE', service)
         self.assertIn('MorningReadPolicy.postCaptureGoldSearchFocusIndex(', service)
+        # The research-only Gold preview may have one exact unrelated
+        # global "Order platzieren" launcher. It may permit only a uniquely
+        # identified search icon (or a read-only wait), never order actions.
+        policy = (ROOT / "android_companion/app/src/main/java/ch/bob/degirocompanion/MorningReadPolicy.kt").read_text()
+        recovery = policy.split('private fun isolatedGoldSearchAfterLauncher(', 1)[1].split(
+            '/** The independently verified read-only Gold preview', 1)[0]
+        for guard in [
+            'protection(nodes)!="PROTECTED_ORDER_CONFIRM"',
+            'genericTurboDirectory(nodes)',
+            'nodes.count { exact(it.text,"Hebelprodukte") }!=1',
+            'nodes.count { exact(it.text,"Top Ergebnisse") }!=1',
+            'productSearchWithoutLauncher(check)',
+            'if(protection(clean)!=null) return null',
+            'descendant(i,launcher)', 'canClick(n)',
+            'Action(Kind.SEARCH,searchButtons.single())',
+            'Action(Kind.WAIT,code="GOLD_SEARCH_REBUILDING")'
+        ]:
+            self.assertIn(guard, recovery)
+        self.assertIn('isolatedGoldSearchAfterLauncher(nodes)?.let { return it }', policy)
 
 
         seek=service.split('A fresh run can begin on yesterday',1)[1].split('val proposed=',1)[0]
