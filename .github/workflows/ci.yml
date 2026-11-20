@@ -100,6 +100,9 @@ jobs:
             node "$test"
           done
 
+      - name: Oracle A1 retry fail-closed and idempotency tests
+        run: node ops/oracle_a1_retry/worker.test.mjs
+
       - name: Cloudflare watchdog isolated tests and bundle dry-run
         run: |
           node --test ops/cloudflare-watchdog/worker.test.mjs
