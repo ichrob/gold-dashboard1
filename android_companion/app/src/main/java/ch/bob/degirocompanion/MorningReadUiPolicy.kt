@@ -48,6 +48,7 @@ internal object MorningReadUiPolicy {
         "LIST_TOP_RESULTS_MISSING" -> "Top-Ergebnisliste nicht erkannt; Gesamtkatalog wird nicht geöffnet"
         "LIST_TOP_RESULTS_OVERFLOW", "LIST_TOP_RESULTS_INCOMPLETE" -> "Zehn Top Ergebnisse noch nicht vollständig erfasst; keine neue Morgenliste übernommen"
         "LOCAL_RESEARCH_ACTIVE" -> "Nur lokale ISIN-Recherche aus noch nicht bestätigter Goldliste. Keine Weitergabe oder Handelsfreigabe."
+        "LOCAL_RESEARCH_START_BLOCKED" -> "Die sichere Gold-Suche vor der lokalen ISIN-Recherche konnte nicht bestätigt werden. Keine Eingabe ausgeführt."
         "LIST_IMAGES_DELIVERED" -> "Listenbilder gespeichert; Bob prüft die Übernahme auf dem Server"
         "LIST_FIRST_CAPTURED" -> "Erstes Listenbild gespeichert; weiter scrollen"
         "LIST_UPLOAD_FAILED" -> "Listenbilder lokal gespeichert; Übertragung nicht bestätigt"

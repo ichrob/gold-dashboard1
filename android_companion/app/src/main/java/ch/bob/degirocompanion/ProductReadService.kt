@@ -366,7 +366,7 @@ class ProductReadService : AccessibilityService() {
                 !ProductReadRequest.active(SystemClock.elapsedRealtime())) {
                 "Lokale ISIN-Recherche benötigt die bestehende entsperrte Lesesitzung"
             }
-            check(local.size in 9..10 && local.distinct()==local &&
+            check(local.size in 1..10 && local.distinct()==local &&
                 local.all(SeriesEvidence::validIsin))
             val root=productRoot(false) ?: error("DEGIRO-Suchseite nicht erreichbar")
             val refs=mutableListOf<AccessibilityNodeInfo>()
@@ -374,8 +374,8 @@ class ProductReadService : AccessibilityService() {
             val ready=try {
                 check(root.packageName?.toString()==ProductScreenEvidence.PACKAGE)
                 navigationTree(root,refs,view)
-                val action=MorningReadPolicy.detailDecision(
-                    view,local.first(),false,keyboardVisible(),resultOpened=false)
+                val action=MorningReadPolicy.localResearchDecision(
+                    view,local.first(),keyboardVisible(),resultOpened=false)
                 action.kind in setOf(MorningReadPolicy.Kind.SEARCH,
                     MorningReadPolicy.Kind.FOCUS,MorningReadPolicy.Kind.QUERY) &&
                     !MorningReadPolicy.genericTurboDirectory(view)
@@ -2134,7 +2134,10 @@ class ProductReadService : AccessibilityService() {
                     return true
                 }
             }
-            val proposed=if(openingProduct) MorningReadPolicy.ownerProductDecision(descriptions,productTarget,keyboardVisible()) else if(searchOnly) MorningReadPolicy.searchLeveraged(descriptions,GoldSearchRun.query,searchCategoryTappedAt > 0L) else if(gold) MorningReadPolicy.captureGoldList(descriptions,listImages.length()>0 || listAllResultsTappedAt>0L,fullPage=listAllResultsTappedAt>0L) else MorningReadPolicy.detailDecision(descriptions,MorningReadRun.target,MorningReadRun.importedListRun(),keyboardVisible(),resultOpened=batchResultOpened) {
+            val proposed=if(openingProduct) MorningReadPolicy.ownerProductDecision(descriptions,productTarget,keyboardVisible()) else if(searchOnly) MorningReadPolicy.searchLeveraged(descriptions,GoldSearchRun.query,searchCategoryTappedAt > 0L) else if(gold) MorningReadPolicy.captureGoldList(descriptions,listImages.length()>0 || listAllResultsTappedAt>0L,fullPage=listAllResultsTappedAt>0L)
+            else if(MorningReadRun.researchOnlyActive()) MorningReadPolicy.localResearchDecision(
+                descriptions,MorningReadRun.target,keyboardVisible(),resultOpened=batchResultOpened)
+            else MorningReadPolicy.detailDecision(descriptions,MorningReadRun.target,MorningReadRun.importedListRun(),keyboardVisible(),resultOpened=batchResultOpened) {
                 symbolMemory.getString(it, null)
             }
             val action=automaticSearchProgress.select(descriptions,proposed,root.windowId,SystemClock.elapsedRealtime())

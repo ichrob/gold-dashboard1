@@ -749,6 +749,40 @@ class MorningReadPolicyTest {
             MorningReadPolicy.Node("V",clickable=true))
     }
 
+    @Test fun quarantinedResearchCanFocusGoldOnVerifiedPreviewOnly() {
+        val preview=screenshotGoldTopResults()
+        val target="DE000FD0S0G4"
+        assertEquals(MorningReadPolicy.Kind.FOCUS,
+            MorningReadPolicy.localResearchDecision(preview,target,
+                keyboardReady=false,resultOpened=false).kind)
+        val focused=preview.mapIndexed { i,n ->
+            if(i==0)n.copy(focused=true) else n
+        }
+        assertEquals(MorningReadPolicy.Kind.QUERY,
+            MorningReadPolicy.localResearchDecision(focused,target,
+                keyboardReady=true,resultOpened=false).kind)
+        val untrusted=preview+MorningReadPolicy.Node("Order bestätigen")
+        assertEquals(MorningReadPolicy.Kind.BLOCK,
+            MorningReadPolicy.localResearchDecision(untrusted,target).kind)
+        assertEquals(MorningReadPolicy.Kind.BLOCK,
+            MorningReadPolicy.localResearchDecision(preview+
+                MorningReadPolicy.Node("Stückzahl",editable=true),target).kind)
+        assertNotEquals(MorningReadPolicy.Kind.QUERY,
+            MorningReadPolicy.localResearchDecision(
+                preview.mapIndexed { i,n ->
+                    if(i==0)n.copy(id="invalid-input",hint="") else n
+                },target).kind)
+        val generic=listOf(
+            MorningReadPolicy.Node("Strukturierte Produkte"),
+            MorningReadPolicy.Node("Hebelprodukte"),
+            MorningReadPolicy.Node("Turbos"),
+            MorningReadPolicy.Node("279.325 von 279.325 turbos verfügbar"))
+        assertNotEquals(MorningReadPolicy.Kind.FOCUS,
+            MorningReadPolicy.localResearchDecision(generic,target).kind)
+        assertNotEquals(MorningReadPolicy.Kind.QUERY,
+            MorningReadPolicy.localResearchDecision(generic,target).kind)
+    }
+
     @Test fun goldPreviewIsReadDirectlyInsteadOfOpeningGenericTurbos() {
         val preview=screenshotGoldTopResults()
         // This exact Gold > Hebelprodukte > Top Ergebnisse context is

@@ -31,7 +31,12 @@ class ProvisionalIsinReadPolicyTest {
     }
 
     @Test fun noFakeProductsOrImplicitFallbackOnOtherFailures() {
-        assertNull(decision(ids=local.take(8)))
+        // Android virtualizes list rows. Server may see nine complete rows
+        // even when its accessibility tree exposed fewer candidate identities.
+        // Only genuinely seen, unique ISINs may be locally researched.
+        assertEquals(local.take(8),decision(ids=local.take(8)))
+        assertEquals(local.take(1),decision(ids=local.take(1)))
+        assertNull(decision(ids=emptyList()))
         assertNull(decision(ids=local+local.first()))
         assertNull(decision(ids=local.dropLast(1)+local[0]))
         assertNull(decision(ids=local.dropLast(1)+"INVALID"))

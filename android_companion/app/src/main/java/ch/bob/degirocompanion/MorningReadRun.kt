@@ -146,7 +146,7 @@ internal object MorningReadRun {
                         researchOnly: Boolean = false) {
         check(!running) { "Listenlauf läuft bereits." }
         check(values.size in 1..12 && values.distinct()==values && values.all { SeriesEvidence.validIsin(it) })
-        if(researchOnly) check(values.size in 9..10 && listBatchId==null &&
+        if(researchOnly) check(values.size in 1..10 && listBatchId==null &&
             requested==null && originalListAt==null && requestBatchId==null) {
             "Lokale Recherche nur aus strikt beobachteten ISINs ohne freigegebene Liste"
         }
