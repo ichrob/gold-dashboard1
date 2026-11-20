@@ -62,6 +62,32 @@ class MorningListEndPolicyTest {
             footer+MorningReadPolicy.Node("",sensitive=true),3,seen,visible,action))
     }
 
+    @Test fun partialLocalWebViewStillAllowsOneSafeFooterPhoto() {
+        // The server may identify nine complete rows even if Samsung exposes
+        // only five to eight checksum-valid labels in its virtualized view.
+        val visible=listOf(ids[0],ids[3])
+        val collect=MorningReadPolicy.Action(MorningReadPolicy.Kind.COLLECT,isins=visible)
+        for (count in 5..8) {
+            val seen=(ids + listOf("DE000SQ02JQ6","DE000FG8K0P8","DE000FG77MY4"))
+                .take(count).toSet()
+            assertTrue("local count $count",MorningListEndPolicy.needsFooterRecapture(
+                page(),3,seen,visible,collect))
+        }
+        assertFalse(MorningListEndPolicy.needsFooterRecapture(
+            page(),3,ids.take(4).toSet(),visible,collect))
+        assertFalse(MorningListEndPolicy.needsFooterRecapture(
+            page(),4,ids.toSet(),visible,collect))
+        assertFalse(MorningListEndPolicy.needsFooterRecapture(
+            page(MorningReadPolicy.Node("Order platzieren")),
+            3,ids.toSet(),visible,collect))
+        assertFalse(MorningListEndPolicy.needsFooterRecapture(
+            page(MorningReadPolicy.Node("Passwort",password=true)),
+            3,ids.toSet(),visible,collect))
+        assertFalse(MorningListEndPolicy.needsFooterRecapture(
+            page(),3,ids.toSet(),visible,
+            MorningReadPolicy.Action(MorningReadPolicy.Kind.SEARCH,isins=visible)))
+    }
+
     @Test fun fourImagesMayBeSubmittedButNeverCountAsLocalCompletion() {
         assertTrue(MorningListEndPolicy.maySubmitAtCaptureLimit(4,ids.toSet()))
         assertFalse(MorningListEndPolicy.maySubmitAtCaptureLimit(3,ids.toSet()))
