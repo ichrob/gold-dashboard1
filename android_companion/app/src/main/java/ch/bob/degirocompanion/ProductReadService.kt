@@ -1435,7 +1435,9 @@ class ProductReadService : AccessibilityService() {
             val action=if(remoteQuery != null) {
                 if(remoteQuery == "Gold") MorningReadPolicy.discoverGold(descriptions)
                 else MorningReadPolicy.ownerProductDecision(descriptions,remoteQuery,keyboardVisible())
-            } else if(MorningReadRun.running) MorningReadPolicy.detailDecision(descriptions,MorningReadRun.target,MorningReadRun.importedListRun(),keyboardVisible())
+            } else if(MorningReadRun.researchOnlyActive()) MorningReadPolicy.localResearchDecision(
+                descriptions,MorningReadRun.target,keyboardVisible(),resultOpened=batchResultOpened)
+                else if(MorningReadRun.running) MorningReadPolicy.detailDecision(descriptions,MorningReadRun.target,MorningReadRun.importedListRun(),keyboardVisible())
                 else if(GoldSearchRun.openingProduct) MorningReadPolicy.ownerProductDecision(descriptions,GoldSearchRun.query,keyboardVisible())
                 else if(GoldSearchRun.running && GoldSearchRun.searchOnlyQuery != null) MorningReadPolicy.searchLeveraged(descriptions,GoldSearchRun.query)
                 else MorningReadPolicy.discoverGold(descriptions)
