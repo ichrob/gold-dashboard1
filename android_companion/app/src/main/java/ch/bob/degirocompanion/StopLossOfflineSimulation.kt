@@ -8,6 +8,14 @@ package ch.bob.degirocompanion
  */
 internal object StopLossOfflineSimulation {
     enum class Scenario { HAPPY_PATH, WRONG_ISIN, BUY_SELECTED, AMBIGUOUS_STOP_FIELD }
+    /** Each negative scenario must fail at its own safety gate, not at any random gate. */
+    data class ExpectedBlock(val stage: StopLossPrefillPolicy.Stage, val code: String)
+    fun expectedBlock(scenario: Scenario): ExpectedBlock? = when (scenario) {
+        Scenario.HAPPY_PATH -> null
+        Scenario.WRONG_ISIN -> ExpectedBlock(StopLossPrefillPolicy.Stage.OPEN_FORM, "PRODUKT_ISIN_NICHT_ERKANNT")
+        Scenario.BUY_SELECTED -> ExpectedBlock(StopLossPrefillPolicy.Stage.VERIFY_FORM, "VERKAUF_NICHT_BESTAETIGT")
+        Scenario.AMBIGUOUS_STOP_FIELD -> ExpectedBlock(StopLossPrefillPolicy.Stage.WRITE_STOP, "STOP_FELD_NICHT_EINDEUTIG")
+    }
     data class Report(val passed: Boolean, val reason: String, val trace: List<String>,
                       val stopText: String = "", val quantityText: String = "",
                       val brokerOpened: Boolean = false, val orderSubmitted: Boolean = false)
@@ -74,10 +82,14 @@ internal object StopLossOfflineSimulation {
             val decision=StopLossPrefillPolicy.decide(stage,snapshot,draft)
             when(decision.kind) {
                 StopLossPrefillPolicy.Kind.BLOCK -> {
-                    trace.add("Sicherheitssperre: "+decision.code)
-                    intendedBlock=scenario!=Scenario.HAPPY_PATH
+                    trace.add("Sicherheitssperre in $stage: "+decision.code)
+                    val expected=expectedBlock(scenario)
+                    intendedBlock=expected?.stage==stage &&
+                        expected.code==decision.code &&
+                        stopInput.isEmpty() && quantityInput.isEmpty()
                     return Report(intendedBlock,
-                        if(intendedBlock) "Sperre wie erwartet" else "Simulierter Ablauf blockiert",
+                        if(intendedBlock) "Sperre wie erwartet: "+decision.code
+                        else "Unerwartete Sperre: "+decision.code+" in "+stage,
                         trace,stopInput,quantityInput)
                 }
                 StopLossPrefillPolicy.Kind.DONE -> {
