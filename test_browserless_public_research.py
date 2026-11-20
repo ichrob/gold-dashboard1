@@ -138,11 +138,17 @@ Gold
     def test_sg_wkn_title_fallback_is_research_only(self):
         markdown = """# BEST Turbo on Gold
 ## FB0A49
-Stammdaten
-WKN FB0A49
-Produktart BEST Turbo-Optionsscheine
-Basiswert Gold
-Knock-Out-Barriere 4.151,2285 USD
+## Stammdaten
+WKN
+FB0A49
+Produktart
+BEST Turbo-Optionsscheine
+Typ
+Put
+Basiswert
+Gold
+Knock-Out-Barriere
+4.151,2285 USD
 """
         self.assertEqual(b.source_identity_evidence(markdown, "DE000FB0A490", "sg"),
                          "sg-product-title-wkn-only")
