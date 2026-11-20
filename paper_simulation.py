@@ -1336,6 +1336,9 @@ def quote_focus(products, market):
             if isinstance(p, dict) and isinstance(p.get('isin'), str)
             and p['isin'] and p.get('productDirection') == side
             and p.get('knockedOut') is not True
+            and not (isinstance(p.get('quote'), dict)
+                and p['quote'].get('productVerified') is True
+                and (p['quote'].get('metadata') or {}).get('status') not in (None, 1))
             and not re.search(r'\b(?:faktor|factor)\b',
                               str(p.get('name') or ''), re.I)]
 
