@@ -668,6 +668,10 @@ internal object MorningReadPolicy {
         fun nestedInProduct(index:Int):Boolean {
             var p=nodes[index].parent;var steps=0
             while(p in nodes.indices && steps++<nodes.size) {
+                // Android's root WebView aggregates all product rows. That
+                // does not make a separate search box a product-card child.
+                // Ignore only the real page root when testing ancestry.
+                if(nodes[p].parent !in nodes.indices) break
                 val title=nodes[p].text
                 if(ids.containsMatchIn(title.uppercase()) ||
                     ids.containsMatchIn(nodes[p].row.uppercase()) ||
@@ -707,8 +711,31 @@ internal object MorningReadPolicy {
                 i!=launcher && canClick(n) &&
                     (search(n) || rowSearch(n))
             }) return null
+        // Samsung sometimes exposes the existing Gold search string as a
+        // noneditable node until a human taps it; screenshots show the
+        // keyboard opening when that exact top search field is selected.
+        // Only a user-started research run can reach this classification.
+        // Never type into a synthetic field or click product/order rows.
+        val leverageIndex=nodes.indexOfFirst { exact(it.text,"Hebelprodukte") }
+        val visibleGold=if(searchButtons.isEmpty() && topResults &&
+            nodes.any { exact(it.text,"Alle Ergebnisse in Hebelprodukte") } &&
+            leverageIndex>0) {
+            nodes.indices.filter { i ->
+                val n=nodes[i]
+                i<leverageIndex && n.parent in nodes.indices &&
+                n.enabled && !n.editable && !n.containsInput &&
+                !n.sensitive && !n.password &&
+                exact(n.text,"Gold") &&
+                n.row.lines().filter(String::isNotBlank)
+                    .all { exact(it,"Gold") } &&
+                !descendant(i,launcher) && !descendant(launcher,i) &&
+                !nestedInProduct(i)
+            }.singleOrNull()
+        } else null
         return if(searchButtons.size==1) Action(Kind.SEARCH,
                 searchButtons.single(),code="GOLD_GLOBAL_LAUNCHER_SEARCH")
+            else if(visibleGold!=null) Action(Kind.SEARCH,visibleGold,
+                code="GOLD_GLOBAL_LAUNCHER_SEARCH")
             // Crucial: missing Search EditText is a bounded, read-only
             // rebuilding state, NOT an order confirmation. No gesture,
             // query, product tap or imported-list approval occurs on WAIT.
