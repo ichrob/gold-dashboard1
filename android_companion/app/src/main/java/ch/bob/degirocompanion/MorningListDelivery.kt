@@ -94,7 +94,8 @@ internal object MorningListDelivery {
         }
         val age=runCatching { System.currentTimeMillis()-Instant.parse(images.getJSONObject(0).getString("at")).toEpochMilli() }.getOrDefault(Long.MAX_VALUE)
         val mode=MorningListResumePolicy.mode(age,body.optInt("resumeCount"),
-            body.optBoolean("verificationFailed",false))
+            body.optBoolean("verificationFailed",false),
+            body.optBoolean("receiptUnconfirmed",false))
         if(mode==MorningListResumePolicy.Mode.NEW_LIST) {
             val batch=body.optString("batchId")
             if(!batch.matches(Regex("[a-f0-9]{32}"))) return false
@@ -129,6 +130,7 @@ internal object MorningListDelivery {
                 val result=runCatching {
                     if(!uploaded) { check(PhoneRemote.active() && PhoneRemote.sessionId()==session);PhoneDiagnostics.uploadList(c,JSONObject(body.toString()).apply {
                         remove("resumeCount");remove("localRecognitionRevision");remove("verificationFailed")
+                        remove("receiptUnconfirmed")
                         // Captured candidate identity hints stay on this
                         // handset, never enter the authenticated 10-row API.
                         remove("localCandidates")
@@ -228,6 +230,34 @@ internal object MorningListDelivery {
                             status(c,"Gespeicherte Liste nicht bestätigt" +
                                 rejectedListHint(receipt) +
                                 " Ein neuer Gold-Lesestart ist erforderlich; alte Bilder bleiben erhalten.")
+                            PhoneRemote.stop(c,"LIST_UPLOAD_FAILED")
+                        }
+                    } else if(MorningListResumePolicy.receiptUnavailableForFreshCapture(
+                            attempt,receiptOnly,response?.optString("batchId")==batch,
+                            receipt?.optString("stage"))) {
+                        // A saved batch may have no usable authenticated status
+                        // after an offline session or an unknown server receipt.
+                        // Three bounded read-only probes are sufficient: do NOT
+                        // keep the owner waiting through 100 probes for an old
+                        // batch. Never pretend the previous nine rows were ten.
+                        val archivedReady=runCatching {
+                            save(c,JSONObject(body.toString()).put("receiptUnconfirmed",true))
+                        }.isSuccess
+                        waiting=false
+                        if(archivedReady && PhoneRemote.active() &&
+                            PhoneRemote.sessionId()==session &&
+                            onFreshCaptureRequired!=null) {
+                            status(c,"Alte Goldlisten-Quittung nicht abrufbar. " +
+                                "Originalbilder gesichert; frische Goldliste in derselben " +
+                                "entsperrten DEGIRO-Sitzung wird gestartet.")
+                            runCatching { onFreshCaptureRequired?.invoke() }.onFailure {
+                                status(c,"Alte Belege gesichert. Frischer Lesestart " +
+                                    "nur nach erneuter DEGIRO-Freigabe möglich.")
+                                PhoneRemote.stop(c,"LIST_UPLOAD_FAILED")
+                            }
+                        } else {
+                            status(c,"Alte Quittung nicht erreichbar · Originalbilder " +
+                                "gesichert. Bob starten kann einen neuen Listenlauf auslösen.")
                             PhoneRemote.stop(c,"LIST_UPLOAD_FAILED")
                         }
                     } else if(MorningListFallbackPolicy.memoryDeferred(
