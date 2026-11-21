@@ -27,10 +27,20 @@ class EntryStartDiagnosticsTests(unittest.TestCase):
         codes = set(re.findall(r'START_[A-Z_]+', activity))
         expected = {
             'START_BUSY','START_SERVICE_NOT_READY','START_DIAGNOSTICS_UNPAIRED',
-            'START_DEGIRO_MISSING','START_PIN_TEST_MISSING','START_PIN_UNAVAILABLE',
-            'START_SESSION_FAILED','START_LAUNCH_FAILED','START_OTHER'
+            'START_DEGIRO_MISSING','START_SESSION_FAILED',
+            'START_LAUNCH_FAILED','START_OTHER'
         }
+        # A stored but unverified PIN must not veto an explicitly
+        # owner-started read-only Gold-list session. These former start
+        # reasons remain accepted as historical diagnostic telemetry.
+        former_pin_blockers = {'START_PIN_TEST_MISSING','START_PIN_UNAVAILABLE'}
         self.assertTrue(expected <= codes)
+        start = activity.split('private fun startAutomaticTest()', 1)[1].split('private fun primaryAction()', 1)[0]
+        self.assertTrue(former_pin_blockers.isdisjoint(set(re.findall(
+            r'reject\\("(START_[A-Z_]+)"', start))))
+        self.assertIn('LocalPinReadStartPolicy.useVerifiedPin(', start)
+        self.assertIn('PhoneRemote.start(this)', start)
+        self.assertIn('GoldSearchRun.start()', start)
         self.assertIn('container.addView(startFeedback)', activity)
         self.assertIn('setOnClickListener { startAutomaticTest() }', activity)
         self.assertIn('startFeedback.text = "Startknopf erkannt', activity)
@@ -39,7 +49,7 @@ class EntryStartDiagnosticsTests(unittest.TestCase):
         self.assertIn('GoldSearchRun.event(failureCode,', start)
         refresh = activity.split('private fun refresh()', 1)[1]
         self.assertNotIn('startFeedback.text', refresh)
-        for code in expected:
+        for code in expected | former_pin_blockers:
             with self.subTest(code=code):
                 value = report()
                 value['lastCode'] = code
