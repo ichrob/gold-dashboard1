@@ -727,10 +727,16 @@ class ProductReadService : AccessibilityService() {
                                 !StopLossPrefillSession.takeSubmissionAttempt(now)) {
                                 StopLossPrefillSession.finish("ORDER_FREIGABE_UNGUELTIG")
                             } else {
-                                val clicked=StopLossOrderSubmitExecutor.executeOnce(
-                                    target,frame.nodes[decision.index].label)
-                                StopLossPrefillSession.finish(if(clicked)
-                                    "ORDER_SENDUNG_UNBESTAETIGT" else "ORDER_BUTTON_ABGELEHNT")
+                                if(BuildConfig.DEBUG) {
+                                    // Disposable lab: verify exact real broker
+                                    // button detection but NEVER click it.
+                                    StopLossPrefillSession.finish("LAB_ORDER_READY_NOT_SENT")
+                                } else {
+                                    val clicked=StopLossOrderSubmitExecutor.executeOnce(
+                                        target,frame.nodes[decision.index].label)
+                                    StopLossPrefillSession.finish(if(clicked)
+                                        "ORDER_SENDUNG_UNBESTAETIGT" else "ORDER_BUTTON_ABGELEHNT")
+                                }
                             }
                         } else {
                             val success=StopLossPrefillExecutor.execute(
