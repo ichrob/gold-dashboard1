@@ -36,8 +36,8 @@ class EntryStartDiagnosticsTests(unittest.TestCase):
         former_pin_blockers = {'START_PIN_TEST_MISSING','START_PIN_UNAVAILABLE'}
         self.assertTrue(expected <= codes)
         start = activity.split('private fun startAutomaticTest()', 1)[1].split('private fun primaryAction()', 1)[0]
-        self.assertTrue(former_pin_blockers.isdisjoint(set(re.findall(
-            r'reject\\("(START_[A-Z_]+)"', start))))
+        for obsolete in former_pin_blockers:
+            self.assertNotIn(f'reject("{obsolete}"', start)
         self.assertIn('LocalPinReadStartPolicy.useVerifiedPin(', start)
         self.assertIn('PhoneRemote.start(this)', start)
         self.assertIn('GoldSearchRun.start()', start)
