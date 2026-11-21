@@ -12,6 +12,7 @@ import math
 import tempfile
 import hashlib
 import ocr_workload_priority
+import android_list
 
 _state = {"state": "not-started", "checkedAt": None, "error": None}
 _state_lock = threading.Lock()
@@ -381,6 +382,10 @@ def _process(payload,at,*,progress=None,save_progress=None):
     env.update(OMP_NUM_THREADS='1',OPENBLAS_NUM_THREADS='1',MKL_NUM_THREADS='1')
     import evaluator_runtime
     images=[]
+    # Only a real fourth photo that is byte-identical to the preceding
+    # cropped Gold footer may be accepted without additional evidentiary
+    # weight. Original encrypted-batch payload remains untouched.
+    repeated_footer=android_list.non_evidentiary_footer_indices(payload['images'])
     prepared=[None]*len(payload['images'])
     saved={} if not isinstance(progress,dict) or len(json.dumps(progress))>120000 else dict(progress)
     if any('appText' in image or 'localOcr' in image for image in payload['images']):
@@ -390,9 +395,14 @@ def _process(payload,at,*,progress=None,save_progress=None):
         result=evaluator_runtime.run(['node',str(Path(__file__).with_name('handset_list_parse.js'))],
             input=json.dumps({'mode':'prepare-app','images':[
                 {'appText':i.get('appText'),'localOcr':i.get('localOcr')}
-                for i in payload['images']]}),
+                if index not in repeated_footer else {'appText':None,'localOcr':None}
+                for index,i in enumerate(payload['images'])]}),
             text=True,capture_output=True,timeout=20,check=True)
         prepared=json.loads(result.stdout)
+    for index in repeated_footer:
+        # A duplicate screenshot with different Accessibility annotations
+        # cannot manufacture an independent tenth row or override a source.
+        prepared[index]=None
     # A partially accepted phone capture may already contain a *complete*
     # ten-ISIN list. Prove that with the same strict Node reconciliation
     # before trying to load an expensive server OCR model. An unaccepted
@@ -423,6 +433,11 @@ def _process(payload,at,*,progress=None,save_progress=None):
     # Share subprocess admission with Node analyses, releasing it after each
     # image. Never overlap a native OCR model with a heavy JS evaluator.
     for index,image in enumerate(payload['images']):
+        if index in repeated_footer:
+            # Leave the original index in the parser but contribute ZERO
+            # optically recognized rows. Do not run costly native OCR again.
+            images.append(['',''])
+            continue
         if prepared[index] is not None:
             images.append(prepared[index]);continue
         key=image_work_key(image,enhanced)
@@ -530,6 +545,7 @@ def _process(payload,at,*,progress=None,save_progress=None):
     # The persisted counts describe recognition routes, never product text.
     # Complementary OCR does not create an independent source or authorization.
     parsed['recognitionRoute']=recognition_route(payload['images'],prepared,
+                                                skipped=repeated_footer,
                                                 complemented=complemented)
     return parsed
 
