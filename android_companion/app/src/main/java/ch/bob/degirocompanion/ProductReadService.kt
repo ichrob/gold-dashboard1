@@ -640,14 +640,17 @@ class ProductReadService : AccessibilityService() {
             handler.postDelayed(degiroReadOnlyTick,delay)
         }
     }
-    // Dedicated local-only Stop Loss order FORM preparer. No network, no
-    // order submission. The ordinary product reader remains read-only.
+    // Dedicated local-only Stop Loss form preparer and separate, owner-
+    // approved, single-use order action. Ordinary product reader is read-only.
     private var stopLossPrefillQueued = false
     private val stopLossPrefillTick = object : Runnable {
         override fun run() {
             stopLossPrefillQueued=false
             val now=SystemClock.elapsedRealtime()
             val draft=StopLossPrefillSession.current(now) ?: return
+            // The owner needs to switch to Bob Handy and review the prepared
+            // DEGIRO form. Never inspect or click while waiting for consent.
+            if(StopLossPrefillSession.stage==StopLossPrefillPolicy.Stage.WAIT_OWNER) return
             if((getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked ||
                 (getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isDeviceLocked ||
                 !(getSystemService(POWER_SERVICE) as PowerManager).isInteractive) {
@@ -694,10 +697,15 @@ class ProductReadService : AccessibilityService() {
                         left=rect.left,top=rect.top,right=rect.right,bottom=rect.bottom
                     )
                 })
-                val decision=StopLossPrefillPolicy.decide(StopLossPrefillSession.stage,frame,draft)
+                val submitting=StopLossPrefillSession.stage==StopLossPrefillPolicy.Stage.SUBMIT_ORDER
+                val decision=if(submitting) StopLossOrderSubmitPolicy.decide(frame,draft)
+                    else StopLossPrefillPolicy.decide(StopLossPrefillSession.stage,frame,draft)
                 when(decision.kind) {
                     StopLossPrefillPolicy.Kind.BLOCK -> StopLossPrefillSession.finish(decision.code)
-                    StopLossPrefillPolicy.Kind.DONE -> StopLossPrefillSession.finish("VORBEREITET")
+                    StopLossPrefillPolicy.Kind.DONE -> {
+                        if(!StopLossPrefillSession.readyForOwner(now))
+                            StopLossPrefillSession.finish("VORBEREITUNG_NICHT_ABGESCHLOSSEN")
+                    }
                     StopLossPrefillPolicy.Kind.ADVANCE -> {
                         StopLossPrefillSession.move(decision.next);queueStopLossPrefill(450)
                     }
@@ -712,12 +720,26 @@ class ProductReadService : AccessibilityService() {
                         }
                         // All UI actions are audited in a separate, exact allowlist.
                         // This reader retains its original, read-only action budget.
-                        val success=StopLossPrefillExecutor.execute(
-                            target,frame.nodes[decision.index].label,decision,
-                            StopLossPrefillSession.stage
-                        )
-                        if(!success) StopLossPrefillSession.finish("FELDAKTION_ABGELEHNT")
-                        else { StopLossPrefillSession.move(decision.next);queueStopLossPrefill(600) }
+                        if(submitting) {
+                            // Permission is consumed before the first click, even
+                            // if Android reports failure. Never click a second time.
+                            if(decision.kind!=StopLossPrefillPolicy.Kind.CLICK ||
+                                !StopLossPrefillSession.takeSubmissionAttempt(now)) {
+                                StopLossPrefillSession.finish("ORDER_FREIGABE_UNGUELTIG")
+                            } else {
+                                val clicked=StopLossOrderSubmitExecutor.executeOnce(
+                                    target,frame.nodes[decision.index].label)
+                                StopLossPrefillSession.finish(if(clicked)
+                                    "ORDER_SENDUNG_UNBESTAETIGT" else "ORDER_BUTTON_ABGELEHNT")
+                            }
+                        } else {
+                            val success=StopLossPrefillExecutor.execute(
+                                target,frame.nodes[decision.index].label,decision,
+                                StopLossPrefillSession.stage
+                            )
+                            if(!success) StopLossPrefillSession.finish("FELDAKTION_ABGELEHNT")
+                            else { StopLossPrefillSession.move(decision.next);queueStopLossPrefill(600) }
+                        }
                     }
                 }
             } catch (_: Exception) {
@@ -734,6 +756,8 @@ class ProductReadService : AccessibilityService() {
     // Only package/type metadata is used. Never read or retain event text.
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if(StopLossPrefillSession.active(SystemClock.elapsedRealtime())) {
+            if(StopLossPrefillSession.stage==StopLossPrefillPolicy.Stage.WAIT_OWNER)
+                return // Only local Bob Activity can approve the exact order.
             if(event?.eventType==AccessibilityEvent.TYPE_TOUCH_INTERACTION_START) {
                 StopLossPrefillSession.finish("USER_STOP");return
             }
