@@ -211,7 +211,10 @@ class AndroidStableReleaseTests(unittest.TestCase):
         for guard in [
             'localCandidates.size !in 1..10', 'SeriesEvidence.validIsin',
             'genericTurboDirectory(nodes)', 'it.editable || it.containsInput',
-            'productSearchWithoutLauncher(synthetic)', 'captureGoldList(nodes,true)',
+            'marked.size !in 1..4', 'actionable.size!=1',
+            'form::containsMatchIn', 'descends(it,clickableLauncher)',
+            'readOnlyNodes=nodes.mapIndexed',
+            'protection(readOnlyNodes)!=null', 'captureGoldList(readOnlyNodes,true)',
             'visible.kind!=Kind.COLLECT', 'visible.isins.any { it !in localCandidates }',
             'innermost(nodes,candidates).singleOrNull()'
         ]: self.assertIn(guard, local_scroll)

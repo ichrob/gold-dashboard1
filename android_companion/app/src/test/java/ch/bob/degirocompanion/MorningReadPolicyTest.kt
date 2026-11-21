@@ -1026,12 +1026,21 @@ class MorningReadPolicyTest {
             row="Order platzieren")
         assertEquals(1,MorningReadPolicy.quarantinedGoldReturnScrollTarget(
             base+launcher,setOf(1),local))
+        // The one actionable Markets launcher may have a purely passive
+        // duplicate in the WebView tree. This is a SCROLL, never an order tap.
+        val passive=launcher.copy(clickable=false)
+        assertEquals(1,MorningReadPolicy.quarantinedGoldReturnScrollTarget(
+            base+launcher+passive,setOf(1),local))
         val unsafe=listOf(
             base+launcher+launcher,
             base+launcher.copy(text="Order bestätigen"),
             base+launcher.copy(row="Order platzieren\\nKauf"),
             base+launcher.copy(clickable=false),
-            base+launcher.copy(parent=1))
+            base+launcher.copy(parent=1),
+            base+launcher+passive.copy(row="Order platzieren\\nKauf"),
+            base+launcher+passive.copy(parent=1),
+            base+launcher+MorningReadPolicy.Node("Limitpreis"),
+            base+launcher+MorningReadPolicy.Node("Stückzahl",editable=true))
         for(v in unsafe)
             assertNull(MorningReadPolicy.quarantinedGoldReturnScrollTarget(
                 v,setOf(1),local))

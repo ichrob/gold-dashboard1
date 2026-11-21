@@ -1715,6 +1715,19 @@ class ProductReadService : AccessibilityService() {
                  MorningListEndPolicy.needsUncoveredFooterCapture(descriptions,listImages.length(),
                     listSeenIds,listCoveredIds,action.isins,action))
             if(listImages.length()==3 && listSeenIds.size in 5..10) {
+                // Report the precise refusal, without saving screen text,
+                // account values or a screenshot. A fourth picture remains
+                // limited to the same existing owner-started Gold list window.
+                if(!footerFirst && MorningListEndPolicy.needsEdgeCapture(
+                        listImages.length(),listSeenIds,listCoveredIds)) {
+                    if(root.windowId!=listWindowId)
+                        ProductReadDiagnostics.record(
+                            ProductReadDiagnostics.Outcome.LIST_FOOTER_RECAPTURE_WINDOW_CHANGED)
+                    else ProductReadDiagnostics.fourthPhotoGuard(
+                        MorningListEndPolicy.uncoveredFooterGate(
+                            descriptions,listImages.length(),listSeenIds,listCoveredIds,
+                            action.isins,action))
+                }
                 ProductReadDiagnostics.record(when {
                     footerFirst -> ProductReadDiagnostics.Outcome.LIST_FOOTER_RECAPTURE_APPROVED
                     MorningListEndPolicy.hasVerifiedFooter(descriptions) ->
