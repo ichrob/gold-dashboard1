@@ -810,6 +810,38 @@ class MorningReadPolicyTest {
         assertEquals(4,MorningReadPolicy.resultTapIndex(original,target))
     }
 
+    @Test fun typedIsinStillOpensOnlyProductTitleBesidePassiveOrderCopy() {
+        val target="DE000SQ02JQ6"
+        val titleScreen=samsungSearchResult()
+        val realLauncher=MorningReadPolicy.Node("Order platzieren",clickable=true)
+        val passive=MorningReadPolicy.Node("Order platzieren",clickable=false)
+        val withDuplicate=titleScreen+realLauncher+passive
+        // This ISIN is already typed. The existing strict result-title
+        // selector must still work; only index 4 (the isolated product name)
+        // may be tapped, NEVER the launcher or K/V buttons.
+        assertEquals(4,MorningReadPolicy.resultTapIndex(withDuplicate,target))
+        assertEquals(MorningReadPolicy.LauncherIssue.NONE,
+            MorningReadPolicy.launcherSearchIssue(withDuplicate))
+        // Two actionable order buttons are a different, unsafe page.
+        assertNull(MorningReadPolicy.resultTapIndex(
+            titleScreen+realLauncher+realLauncher,target))
+        assertEquals(MorningReadPolicy.LauncherIssue.MARKER_COUNT,
+            MorningReadPolicy.launcherSearchIssue(
+                titleScreen+realLauncher+realLauncher))
+        for(unsafe in listOf(
+            MorningReadPolicy.Node("Order bestätigen"),
+            MorningReadPolicy.Node("Orderart"),
+            MorningReadPolicy.Node("Limitpreis"),
+            MorningReadPolicy.Node("Stückzahl"),
+            MorningReadPolicy.Node("",password=true),
+            MorningReadPolicy.Node("",editable=true,id="order_quantity"),
+            passive.copy(row="Order platzieren\\nKauf"),
+            realLauncher.copy(parent=3))) {
+            assertNull("Must not tap title on unsafe page: $unsafe",
+                MorningReadPolicy.resultTapIndex(withDuplicate+unsafe,target))
+        }
+    }
+
     @Test fun orderFormAndAmbiguousLauncherNeverAuthorizeResultTap() {
         val target="DE000SQ02JQ6"
         val view=samsungSearchResult()
