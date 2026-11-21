@@ -1742,11 +1742,21 @@ class ProductReadService : AccessibilityService() {
                     footerRecapture=true
                 } else {
                     if(candidates.isEmpty() && root.windowId==listWindowId &&
-                        (MorningListEndPolicy.maySubmitAtEnd(descriptions,listImages.length(),
-                            listSeenIds,action.isins,action) ||
-                         MorningListEndPolicy.needsEdgeCapture(listImages.length(),listSeenIds,listCoveredIds))) {
-                        // A real DEGIRO footer permits only OCR verification.
+                        MorningListEndPolicy.maySubmitAtEnd(descriptions,listImages.length(),
+                            listSeenIds,action.isins,action)) {
+                        // Only an actual, independently verified end of the
+                        // list can submit fewer than ten locally seen identities.
                         deliverMorningList(listGeneration)
+                    } else if(candidates.isEmpty() &&
+                        MorningListEndPolicy.needsEdgeCapture(listImages.length(),
+                            listSeenIds,listCoveredIds)) {
+                        // Ten labels are NOT ten complete rows. Previously
+                        // this branch silently delivered just three pictures
+                        // despite the fourth-photo guard having failed.
+                        // Never turn an unsafe capture into an upload success.
+                        ProductReadDiagnostics.record(
+                            ProductReadDiagnostics.Outcome.LIST_FOOTER_RECAPTURE_UNSAFE_STOP)
+                        fail("LIST_FOOTER_RECAPTURE_UNSAFE")
                     } else fail(if(candidates.isEmpty()) "LIST_SCROLL_UNAVAILABLE" else "LIST_SCROLL_AMBIGUOUS")
                     return
                 }

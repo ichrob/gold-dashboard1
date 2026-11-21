@@ -810,6 +810,38 @@ class MorningReadPolicyTest {
         assertEquals(4,MorningReadPolicy.resultTapIndex(original,target))
     }
 
+    @Test fun typedIsinStillOpensOnlyProductTitleBesidePassiveOrderCopy() {
+        val target="DE000SQ02JQ6"
+        val titleScreen=samsungSearchResult()
+        val realLauncher=MorningReadPolicy.Node("Order platzieren",clickable=true)
+        val passive=MorningReadPolicy.Node("Order platzieren",clickable=false)
+        val withDuplicate=titleScreen+realLauncher+passive
+        // This ISIN is already typed. The existing strict result-title
+        // selector must still work; only index 4 (the isolated product name)
+        // may be tapped, NEVER the launcher or K/V buttons.
+        assertEquals(4,MorningReadPolicy.resultTapIndex(withDuplicate,target))
+        assertEquals(MorningReadPolicy.LauncherIssue.NONE,
+            MorningReadPolicy.launcherSearchIssue(withDuplicate))
+        // Two actionable order buttons are a different, unsafe page.
+        assertNull(MorningReadPolicy.resultTapIndex(
+            titleScreen+realLauncher+realLauncher,target))
+        assertEquals(MorningReadPolicy.LauncherIssue.MARKER_COUNT,
+            MorningReadPolicy.launcherSearchIssue(
+                titleScreen+realLauncher+realLauncher))
+        for(unsafe in listOf(
+            MorningReadPolicy.Node("Order bestätigen"),
+            MorningReadPolicy.Node("Orderart"),
+            MorningReadPolicy.Node("Limitpreis"),
+            MorningReadPolicy.Node("Stückzahl"),
+            MorningReadPolicy.Node("",password=true),
+            MorningReadPolicy.Node("",editable=true,id="order_quantity"),
+            passive.copy(row="Order platzieren\\nKauf"),
+            realLauncher.copy(parent=3))) {
+            assertNull("Must not tap title on unsafe page: $unsafe",
+                MorningReadPolicy.resultTapIndex(withDuplicate+unsafe,target))
+        }
+    }
+
     @Test fun orderFormAndAmbiguousLauncherNeverAuthorizeResultTap() {
         val target="DE000SQ02JQ6"
         val view=samsungSearchResult()
@@ -1063,6 +1095,61 @@ class MorningReadPolicyTest {
             verified+MorningReadPolicy.Node("Stückzahl",editable=true),captured))
         assertNull(MorningReadPolicy.postCaptureGoldSearchFocusIndex(
             verified+MorningReadPolicy.Node("Order bestätigen"),captured))
+    }
+
+    @Test fun quarantinedGoldSearchIgnoresDuplicateGlobalOrderLabelButNotOrderForms() {
+        val target="DE000FD0S0G4"
+        val field=MorningReadPolicy.Node("Gold",id="search-input",
+            editable=true,focused=false,hint="Mit Namen, ISIN oder Symbol suchen")
+        val preview=listOf(
+            MorningReadPolicy.Node("Hebelprodukte",selected=true),
+            MorningReadPolicy.Node("Top Ergebnisse"))
+        val launcher=MorningReadPolicy.Node("Order platzieren",clickable=true)
+        val duplicate=MorningReadPolicy.Node("Order platzieren",clickable=false)
+        val page=listOf(field)+preview+launcher+duplicate
+        val focus=MorningReadPolicy.localResearchDecision(page,target,
+            keyboardReady=false,resultOpened=false)
+        assertEquals(MorningReadPolicy.Kind.FOCUS,focus.kind)
+        assertEquals(0,focus.index)
+        // Native search recovery may have already supplied the same safe FOCUS.
+        val query=MorningReadPolicy.localResearchDecision(
+            listOf(field.copy(focused=true))+preview+launcher+duplicate,
+            target,keyboardReady=true,resultOpened=false)
+        assertEquals(MorningReadPolicy.Kind.QUERY,query.kind)
+        assertEquals(0,query.index)
+        // Without the real search EditText a rebuilding Gold preview can
+        // only WAIT. No launcher, result row or synthetic field is clicked.
+        val passive=MorningReadPolicy.localResearchDecision(
+            preview+launcher+duplicate,target,keyboardReady=false,resultOpened=false)
+        assertEquals(MorningReadPolicy.Kind.WAIT,passive.kind)
+        assertEquals("GOLD_SEARCH_REBUILDING",passive.code)
+        // Fail closed on every real order field or ambiguous extra input.
+        for(unsafe in listOf(
+            MorningReadPolicy.Node("Order bestätigen"),
+            MorningReadPolicy.Node("Limitpreis"),
+            MorningReadPolicy.Node("Stückzahl"),
+            MorningReadPolicy.Node("Orderart"),
+            MorningReadPolicy.Node("Passwort",password=true),
+            MorningReadPolicy.Node("Konto",sensitive=true),
+            MorningReadPolicy.Node("",editable=true,hint="Limit"))) {
+            assertEquals("Must BLOCK $unsafe",MorningReadPolicy.Kind.BLOCK,
+                MorningReadPolicy.localResearchDecision(page+unsafe,target,
+                    keyboardReady=true,resultOpened=false).kind)
+        }
+        assertNotEquals(MorningReadPolicy.Kind.QUERY,
+            MorningReadPolicy.localResearchDecision(
+                listOf(field.copy(id="",hint=""))+preview+launcher+duplicate,
+                target,keyboardReady=true,resultOpened=false).kind)
+        assertNotEquals(MorningReadPolicy.Kind.QUERY,
+            MorningReadPolicy.localResearchDecision(
+                listOf(field)+preview.filterNot { it.text=="Hebelprodukte" }+
+                    launcher+duplicate,target,keyboardReady=true,
+                resultOpened=false).kind)
+        assertNotEquals(MorningReadPolicy.Kind.QUERY,
+            MorningReadPolicy.localResearchDecision(
+                listOf(field)+preview+
+                    launcher.copy(parent=0)+duplicate,
+                target,keyboardReady=true,resultOpened=false).kind)
     }
 
     @Test fun nineRowResearchOnSamsungReusesTheAlreadyWorkingGoldField() {
