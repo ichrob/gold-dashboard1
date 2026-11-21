@@ -1712,6 +1712,14 @@ class ProductReadService : AccessibilityService() {
             val footerFirst=root.windowId==listWindowId &&
                 MorningListEndPolicy.needsFooterRecapture(descriptions,listImages.length(),
                     listSeenIds,action.isins,action)
+            if(listImages.length()==3 && listSeenIds.size in 5..9) {
+                ProductReadDiagnostics.record(when {
+                    footerFirst -> ProductReadDiagnostics.Outcome.LIST_FOOTER_RECAPTURE_APPROVED
+                    MorningListEndPolicy.hasVerifiedFooter(descriptions) ->
+                        ProductReadDiagnostics.Outcome.LIST_FOOTER_RECAPTURE_GUARD_BLOCKED
+                    else -> ProductReadDiagnostics.Outcome.LIST_FOOTER_RECAPTURE_NO_FOOTER
+                })
+            }
             val candidates=if(footerFirst) emptyList() else nodes.indices.filter { i ->
                 val n=nodes[i]; val d=descriptions[i]
                 n.isVisibleToUser && n.isEnabled && !n.isEditable && !n.isPassword &&

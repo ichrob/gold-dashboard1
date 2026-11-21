@@ -124,6 +124,52 @@ class MorningListEndPolicyTest {
             3,seen,visible,collect))
     }
 
+    @Test fun passiveDuplicateGlobalOrderTextDoesNotPreventFourthPhoto() {
+        val seen=ids.toSet()
+        val visible=action().isins
+        // Samsung may expose an "Order platzieren" text wrapper and its
+        // distinct clickable leaf. Both refer to ONE isolated launcher,
+        // never to an order form or an actionable list item.
+        val passive=MorningReadPolicy.Node("Order platzieren")
+        val clickable=MorningReadPolicy.Node("Order platzieren",
+            clickable=true,parent=4)
+        val nodes=page(passive)+clickable
+        assertTrue(MorningListEndPolicy.needsFooterRecapture(
+            nodes,3,seen,visible,action()))
+        assertFalse(MorningListEndPolicy.needsFooterRecapture(
+            nodes,4,seen,visible,action()))
+        // Two real buttons are never one; no screenshot bypass.
+        assertFalse(MorningListEndPolicy.needsFooterRecapture(
+            nodes+MorningReadPolicy.Node("Order platzieren",clickable=true),
+            3,seen,visible,action()))
+        // The nonclickable wrapper must be an actual ancestor, not a
+        // duplicate text somewhere else in the tree.
+        assertFalse(MorningListEndPolicy.needsFooterRecapture(
+            page(passive)+clickable.copy(parent=-1),
+            3,seen,visible,action()))
+        // If a wrapper has any sibling UI it cannot be considered a pure
+        // global leaf duplicate.
+        assertFalse(MorningListEndPolicy.needsFooterRecapture(
+            nodes+MorningReadPolicy.Node("K",clickable=true,parent=4),
+            3,seen,visible,action()))
+        assertFalse(MorningListEndPolicy.needsFooterRecapture(
+            nodes+MorningReadPolicy.Node("Orderart"),
+            3,seen,visible,action()))
+        assertFalse(MorningListEndPolicy.needsFooterRecapture(
+            nodes+MorningReadPolicy.Node("Limitpreis",editable=true),
+            3,seen,visible,action()))
+        assertFalse(MorningListEndPolicy.needsFooterRecapture(
+            nodes+MorningReadPolicy.Node("Order bestätigen"),
+            3,seen,visible,action()))
+        assertFalse(MorningListEndPolicy.needsFooterRecapture(
+            nodes+MorningReadPolicy.Node("Passwort",password=true),
+            3,seen,visible,action()))
+        assertFalse(MorningListEndPolicy.needsFooterRecapture(
+            page(passive.copy(row="Order platzieren | Gold Turbo ${ids[0]}"))+
+                clickable,
+            3,seen,visible,action()))
+    }
+
     @Test fun fourImagesMayBeSubmittedButNeverCountAsLocalCompletion() {
         assertTrue(MorningListEndPolicy.maySubmitAtCaptureLimit(4,ids.toSet()))
         assertFalse(MorningListEndPolicy.maySubmitAtCaptureLimit(3,ids.toSet()))

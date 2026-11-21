@@ -61,6 +61,11 @@ internal object MorningListEndPolicy {
      * the read-only Gold footer. Ignore it only for deciding whether to
      * capture one additional CROPPED picture; NEVER return a click target.
      * A true order form, nested launcher or second marker remains rejected. */
+    /** Android may expose one standalone Markets launcher twice: once as
+     * a passive text-only ancestor and once as the actual clickable leaf.
+     * This remains a permission to take ONE cropped list PHOTO, not to click
+     * any launcher or to accept an incomplete list. Genuine multiple order
+     * controls, forms or product-card nesting still fail closed. */
     private fun safeFooterProtection(nodes: List<MorningReadPolicy.Node>): Boolean {
         val marked=nodes.indices.filter { i ->
             val n=nodes[i]
@@ -68,16 +73,19 @@ internal object MorningListEndPolicy {
                 .any(footerProtection::containsMatchIn)
         }
         if(marked.isEmpty()) return true
-        val index=marked.singleOrNull() ?: return false
-        val n=nodes[index]
-        if(!n.enabled || !(n.clickable || n.clickAction) || n.editable ||
-            n.containsInput || n.password || n.sensitive) return false
         val exact=Regex("(?iu)^(order platzieren|place order)$")
-        val labels=listOf(n.text,n.description,n.hint,n.row)
-            .filter(String::isNotBlank)
-        if(labels.isEmpty() || labels.any { !exact.matches(it.trim()) }) return false
-        // Never ignore an order control embedded in a product card or
-        // an aggregate wrapper with hidden children.
+        // Every marked node must be a strict, exact copy of the global label.
+        // An extra order field or aggregate text rejects the entire screen.
+        if(marked.any { i ->
+            val n=nodes[i]
+            !n.enabled || n.editable || n.containsInput || n.password ||
+            n.sensitive || listOf(n.text,n.description,n.hint,n.row)
+                .filter(String::isNotBlank).let { labels ->
+                    labels.isEmpty() || labels.any { !exact.matches(it.trim()) }
+                }
+        }) return false
+        val clickable=marked.filter { i -> nodes[i].clickable || nodes[i].clickAction }
+        val leaf=clickable.singleOrNull() ?: return false
         fun below(child:Int,parent:Int):Boolean {
             var at=nodes[child].parent
             var steps=0
@@ -87,14 +95,21 @@ internal object MorningListEndPolicy {
             }
             return false
         }
-        if(nodes.indices.any { it!=index && below(it,index) }) return false
+        // A leaf launcher cannot own any nested UI, and passive wrappers
+        // must form the *single* parent chain of that leaf, not siblings or
+        // separate buttons. A wrapper containing a card is never isolated.
+        if(nodes.indices.any { it!=leaf && below(it,leaf) }) return false
+        if(marked.any { it!=leaf && !below(leaf,it) }) return false
+        if(marked.any { wrapper -> wrapper!=leaf &&
+            nodes.indices.any { i -> i!=leaf && !below(leaf,i) && below(i,wrapper) }
+        }) return false
         val ids=Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b")
-        var at=n.parent
+        var at=nodes[leaf].parent
         var steps=0
         while(at in nodes.indices && steps++<nodes.size) {
             val parent=nodes[at]
             if(ids.containsMatchIn(parent.text.uppercase()) ||
-                ids.containsMatchIn(parent.row.uppercase())) return false
+               ids.containsMatchIn(parent.row.uppercase())) return false
             at=parent.parent
         }
         return true
