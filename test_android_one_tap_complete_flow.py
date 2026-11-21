@@ -81,6 +81,34 @@ class OneTapCompleteFlowTest(unittest.TestCase):
         self.assertIn("onConfirmed?.invoke(plan,batch)", delivery)
         self.assertIn("MorningReadRun.beginDiscovered(this,plan.map { it.isin },batch,", service)
 
+    def test_fourth_gold_photo_reframes_missing_row_without_bypassing_verification(self):
+        # On current Samsung runs, four photographs may contain the same footer
+        # twice and still prove only 9/10 product rows. The verified list
+        # container should move BACK once before spending its last image.
+        service = source("ProductReadService.kt")
+        capture = service.split("private fun captureMorningList(", 1)[1].split(
+            "private fun checkpoint()", 1)[0]
+        self.assertIn("footerFirst && listImages.length()==3 && !listGapReframeSent", capture)
+        self.assertIn("AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD", capture)
+        self.assertIn('n.className?.toString()!="android.widget.HorizontalScrollView"', capture)
+        self.assertIn("!d.containsInput && !d.sensitive", capture)
+        self.assertIn('GoldSearchRun.event("LIST_GAP_REFRAME_SCROLL_SENT"', capture)
+        self.assertLess(capture.index("LIST_GAP_REFRAME_SCROLL_SENT"),
+                        capture.index("val candidates=if(footerFirst)"))
+        self.assertIn("listGapReframeSent ||", capture)
+        accept = service.split("private fun acceptCapturedMorningImage(", 1)[1].split(
+            "private fun morningListAnchors(", 1)[0]
+        self.assertIn("listGapReframeSent && listImages.length()==3", accept)
+        self.assertIn('listImages.getJSONObject(i).optString("png")==image.optString("png")', accept)
+        self.assertLess(accept.index("LIST_GAP_REFRAME_DUPLICATE"),
+                        accept.index("listImages.put(image)"))
+        self.assertIn("deliverMorningList(generation)", accept)
+        self.assertIn("listGapReframeSent=false", service)
+        # No false success from the new screenshot or a previous 9/10 batch.
+        delivery = source("MorningListDelivery.kt")
+        self.assertIn('receipt?.optString("stage")=="synced"', delivery)
+        self.assertIn('receipt.optInt("count")==10', delivery)
+
     def test_provisional_gold_search_rebuild_is_passive_and_bounded(self):
         service = source("ProductReadService.kt")
         policy = source("MorningReadPolicy.kt")

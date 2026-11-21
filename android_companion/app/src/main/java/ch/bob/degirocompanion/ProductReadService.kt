@@ -114,6 +114,9 @@ class ProductReadService : AccessibilityService() {
     private var listBusy = false
     private var listScrolled = false
     private var listScrollTries = 0
+    // Once per owner-started Gold list: make the fourth photo cover a new
+    // observed viewport instead of repeating the identical verified footer.
+    private var listGapReframeSent = false
     private var listFirstIds = emptyList<String>()
     private val listSeenIds = mutableSetOf<String>()
     private val listCoveredIds = mutableSetOf<String>()
@@ -132,7 +135,7 @@ class ProductReadService : AccessibilityService() {
         listGeneration++; listResumeChecked=false; listTopSeekSteps=0; listAllResultsTappedAt=0L
         listGenericTurboFallback=false;listGoldPreviewConfirmed=false
         listVerifiedPreviewFallback=false;listGenericTurboBackAt=0L
-        listBusy=false; listScrolled=false; listScrollTries=0
+        listBusy=false; listScrolled=false; listScrollTries=0; listGapReframeSent=false
         listFirstIds=emptyList(); listSeenIds.clear(); listCoveredIds.clear(); listCropTop=null; listWindowId=null; while(listImages.length()>0) listImages.remove(0)
         listBatch=java.util.UUID.randomUUID().toString().replace("-","")
     }
@@ -1633,6 +1636,17 @@ class ProductReadService : AccessibilityService() {
             ProductReadRequest.cancel()
             return
         }
+        // A fourth pixel-identical image cannot independently prove a missing
+        // tenth product. Retain the three originals and submit them honestly
+        // instead of wasting server OCR on a replayed footer.
+        if(listGapReframeSent && listImages.length()==3 &&
+            (0 until listImages.length()).any { i ->
+                listImages.getJSONObject(i).optString("png")==image.optString("png")
+            }) {
+            GoldSearchRun.event("LIST_GAP_REFRAME_DUPLICATE",at)
+            deliverMorningList(generation)
+            return
+        }
         ProductReadDiagnostics.record(when {
             image.has("appText") -> ProductReadDiagnostics.Outcome.LIST_APP_TEXT_ATTACHED
             image.has("localOcr") -> ProductReadDiagnostics.Outcome.LIST_LOCAL_OCR_ATTACHED
@@ -1735,6 +1749,42 @@ class ProductReadService : AccessibilityService() {
                     else -> ProductReadDiagnostics.Outcome.LIST_FOOTER_RECAPTURE_NO_FOOTER
                 })
             }
+            // The original successful 10/10 reader scrolled through distinct
+            // views before uploading. Newer runs repeatedly upload the same
+            // footer as their fourth image; this contributes no new row proof.
+            // On the EXACT previously verified Gold footer, make one bounded
+            // accessibility BACKWARD scroll to expose the row boundary first.
+            // This is a list-container scroll, NEVER a product/order tap.
+            if(footerFirst && listImages.length()==3 && !listGapReframeSent) {
+                val backward=nodes.indices.filter { i ->
+                    val n=nodes[i];val d=descriptions[i]
+                    n.isVisibleToUser && n.isEnabled && !n.isEditable && !n.isPassword &&
+                        !d.containsInput && !d.sensitive &&
+                        n.className?.toString()!="android.widget.HorizontalScrollView" &&
+                        n.actionList.any { it.id==AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD } &&
+                        action.isins.any { d.row.contains(it) }
+                }
+                val target=backward.filter { ancestor -> backward.none { child ->
+                    var cursor=descriptions[child].parent;var steps=0;var found=false
+                    while(cursor in descriptions.indices && steps++<descriptions.size) {
+                        if(cursor==ancestor) { found=true;break }
+                        cursor=descriptions[cursor].parent
+                    }
+                    child!=ancestor && found
+                } }.singleOrNull()
+                if(target!=null) {
+                    lastNavigation=SystemClock.elapsedRealtime()
+                    if(nodes[target].performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)) {
+                        listGapReframeSent=true
+                        listScrolled=true
+                        GoldSearchRun.event("LIST_GAP_REFRAME_SCROLL_SENT",Instant.now().toString())
+                        handler.postDelayed({ queueRead(500) },650)
+                        return
+                    }
+                }
+                // No unique safe container: use the original fourth-photo
+                // path rather than guessing a gesture or leaving Gold.
+            }
             val candidates=if(footerFirst) emptyList() else nodes.indices.filter { i ->
                 val n=nodes[i]; val d=descriptions[i]
                 n.isVisibleToUser && n.isEnabled && !n.isEditable && !n.isPassword &&
@@ -1783,8 +1833,9 @@ class ProductReadService : AccessibilityService() {
             }
         }
         if(listImages.length()>0 && action.isins==listFirstIds && !footerRecapture &&
-            !(listScrolled && MorningListEndPolicy.needsEdgeCapture(
-                listImages.length(),listSeenIds,listCoveredIds))) {
+            !(listScrolled && (listGapReframeSent ||
+                MorningListEndPolicy.needsEdgeCapture(
+                    listImages.length(),listSeenIds,listCoveredIds)))) {
             if(root.windowId==listWindowId &&
                 MorningListEndPolicy.maySubmitAtEnd(descriptions,listImages.length(),
                     listSeenIds,action.isins,action)) {
