@@ -753,6 +753,56 @@ internal object MorningReadPolicy {
         return true
     }
 
+    /** Local, owner-started, research-only Gold list recovery after a
+     * rejected nine-row screenshot batch. A duplicate "Order platzieren"
+     * label does NOT make the one real Gold search EditText an order form.
+     * The action is limited to this independently labelled SEARCH field,
+     * or a passive WAIT if WebView has virtualized the field away.
+     *
+     * Never permits an order-button click, arbitrary input, confirmation,
+     * K/V control, account form, synthetic EditText, or data approval.
+     */
+    private fun readOnlyGoldResearchWithOrderLabel(nodes: List<Node>,
+                                                     target: String,
+                                                     keyboardReady: Boolean): Action? {
+        if(!SeriesEvidence.validIsin(target) || nodes.isEmpty() ||
+            nodes.size>500 || genericTurboDirectory(nodes) ||
+            protection(nodes)!="PROTECTED_ORDER_CONFIRM") return null
+        val unsafe=Regex("(?iu)order bestätigen|confirm order|orderart|" +
+            "ordertyp|limitpreis|stückzahl|anzahl kaufen|orderdetails|" +
+            "orderübersicht|orderzusammenfassung|passwort|password|" +
+            "login|anmelden|kontostand|portfolio|depotwert")
+        if(nodes.any { n -> n.password || n.sensitive || n.containsInput ||
+            listOf(n.text,n.description,n.hint,n.row)
+                .any(unsafe::containsMatchIn) }) return null
+        fun label(value:String,exact:String)=normalized(value).equals(exact,true)
+        if(nodes.count { label(it.text,"Hebelprodukte") }!=1)return null
+        // Only the existing Gold preview, not the generic market directory
+        // or an unrelated product detail, can reach this exception.
+        val preview=nodes.any { label(it.text,"Top Ergebnisse") }
+        val goldRow=nodes.any { n ->
+            !n.editable && Regex("(?iu)\\b(gold|xau)\\b").containsMatchIn(n.row) &&
+            ids.findAll(n.row.uppercase()).any { SeriesEvidence.validIsin(it.value) } &&
+            (Regex("(?iu)\\b(turbo|knock[ -]?out|mini[ -]?(future|long|short))\\b")
+                .containsMatchIn(n.row) || unlimitedGoldRow(n.row))
+        }
+        if(!preview && !goldRow)return null
+        val inputs=nodes.indices.filter { nodes[it].editable }
+        if(inputs.size>1)return null
+        if(inputs.size==1) {
+            val index=inputs.single()
+            val input=nodes[index]
+            if(!input.enabled || input.password || input.sensitive ||
+                !isSearchInput(input.id,input.description,input.hint) ||
+                input.text !in setOf("Gold",""))return null
+            return Action(if(input.focused && keyboardReady) Kind.QUERY
+                else Kind.FOCUS,index,code="GOLD_READONLY_SEARCH_RECOVERED")
+        }
+        // No input means NO ACTION. Let the caller's original finite session
+        // lease re-check the same DEGIRO window, never manufacture controls.
+        return Action(Kind.WAIT,code="GOLD_SEARCH_REBUILDING")
+    }
+
     fun localResearchDecision(nodes: List<Node>, target: String,
                               keyboardReady: Boolean = true,
                               resultOpened: Boolean = true): Action {
@@ -762,6 +812,7 @@ internal object MorningReadPolicy {
             // can use this narrow extra classification. Genuine order views
             // stay BLOCK: the actual search must be separately labelled.
             isolatedGoldSearchAfterLauncher(nodes)?.let { return it }
+            readOnlyGoldResearchWithOrderLabel(nodes,target,keyboardReady)?.let { return it }
             // CRITICAL: do not fall through to importedListSearch(), which
             // may create a synthetic Gold input for SCROLL classification.
             // That older helper must never downgrade a protected form or
