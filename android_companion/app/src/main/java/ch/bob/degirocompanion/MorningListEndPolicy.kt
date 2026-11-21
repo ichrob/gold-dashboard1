@@ -135,6 +135,29 @@ internal object MorningListEndPolicy {
      * ten identities were seen but at least one complete product row was NOT
      * independently covered. Do not submit just because ten labels exist.
      * No tapping, scrolling or permission to approve ten original rows. */
+    /** Only for the FOURTH CROPPED read-only Gold photo when all ten
+     * checksum-valid identities were already observed, but complete optical
+     * row coverage is still missing. A generic global Order button (even
+     * duplicated or nested as WebView text) is NOT an order form. This grants
+     * no navigation, order click, field editing, list approval or trading.
+     * A true order form, login, other editable input or private UI blocks. */
+    private fun safeGoldPhotoDespiteOrderLauncher(nodes: List<MorningReadPolicy.Node>): Boolean {
+        val actualOrderForm=Regex(
+            "(?iu)order bestätigen|confirm order|orderart|ordertyp|limitpreis|" +
+                "stückzahl|anzahl kaufen|orderdetails|orderübersicht|" +
+                "orderzusammenfassung|passwort|password|login|anmelden|" +
+                "kontostand|portfolio|depotwert"
+        )
+        if(nodes.any { n ->
+                n.editable || n.containsInput || n.password || n.sensitive ||
+                listOf(n.text,n.description,n.hint,n.row)
+                    .any(actualOrderForm::containsMatchIn)
+            }) return false
+        // Mixed order-confirmation phrases are rejected above. A read-only
+        // global "Order platzieren" launcher is not used as a target here.
+        return true
+    }
+
     fun needsUncoveredFooterCapture(nodes: List<MorningReadPolicy.Node>,
                                     capturedImages: Int, seen: Set<String>,
                                     covered: Set<String>, current: List<String>,
@@ -145,8 +168,7 @@ internal object MorningListEndPolicy {
         current.all { SeriesEvidence.validIsin(it) && it in seen } &&
         action.kind == MorningReadPolicy.Kind.COLLECT &&
         action.isins == current && hasVerifiedFooter(nodes) &&
-        !nodes.any { it.editable || it.containsInput || it.password || it.sensitive } &&
-        safeFooterProtection(nodes)
+        safeGoldPhotoDespiteOrderLauncher(nodes)
 
     fun maySubmitAtCaptureLimit(capturedImages: Int, seen: Set<String>): Boolean =
         capturedImages == 4 && seen.size in 5..9 && seen.all(SeriesEvidence::validIsin)
