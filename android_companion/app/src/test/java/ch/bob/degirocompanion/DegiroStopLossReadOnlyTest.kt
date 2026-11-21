@@ -48,6 +48,36 @@ class DegiroStopLossReadOnlyTest {
         assertEquals(DegiroStopLossReadOnly.Code.MULTIPLE_ISINS,
             DegiroStopLossReadOnly.inspect(view.copy(nodes=view.nodes+node("DE000FB0A491"))).code)
     }
+    @Test fun orderConfirmationIsRecognizedButNeverApprovedOrActedOn() {
+        val view=frame(node(isin),node("Order platzieren"),
+            node("Order bestätigen"),node("Ordertyp"),
+            node("Stückzahl"),node(editable=true,label="private-value"))
+        val result=DegiroStopLossReadOnly.inspect(view)
+        assertEquals(DegiroStopLossReadOnly.Code.ORDER_CONFIRMATION_VISIBLE,result.code)
+        assertTrue(result.terminal)
+        assertFalse(result.message.contains(isin))
+        assertFalse(result.message.contains("private-value"))
+        assertEquals(DegiroStopLossReadOnly.Code.PROTECTED,
+            DegiroStopLossReadOnly.inspect(view.copy(
+                nodes=view.nodes+node(password=true))).code)
+    }
+
+    @Test fun orderFieldsMayBeRecognizedAsLabelsButNeverEntered() {
+        val view=frame(node(isin),node("Order platzieren"),
+            node("Ordertyp"),node("Limitpreis"),node("Stückzahl"),
+            node(editable=true,label="1234"))
+        val result=DegiroStopLossReadOnly.inspect(view)
+        assertEquals(DegiroStopLossReadOnly.Code.ORDER_FIELDS_VISIBLE_READ_ONLY,result.code)
+        assertTrue(result.terminal)
+        assertFalse(result.message.contains("1234"))
+        assertEquals(DegiroStopLossReadOnly.Code.BUY_OR_UNKNOWN_SIDE,
+            DegiroStopLossReadOnly.inspect(view.copy(
+                nodes=view.nodes+node("Kauf",selected=true))).code)
+        assertEquals(DegiroStopLossReadOnly.Code.MULTIPLE_ISINS,
+            DegiroStopLossReadOnly.inspect(view.copy(
+                nodes=view.nodes+node("DE000FB0A491"))).code)
+    }
+
     @Test fun explicitSessionHasBoundedDeadlineAndOnlyCodes() {
         DegiroReadOnlySession.finish("STOPP")
         assertTrue(DegiroReadOnlySession.start(1000))

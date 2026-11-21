@@ -25,7 +25,8 @@ internal object StopLossDraftCodec {
     fun parse(raw: String, nowMs: Long): StopLossPrefillDraft? {
         val parts = raw.trim().split('|')
         if (parts.size != 6 || parts[0] != "BOB-STOP/1" || parts[2] != "EUR" ||
-            !isinPattern.matches(parts[1]) || !amountPattern.matches(parts[4])) return null
+            !isinPattern.matches(parts[1]) || !SeriesEvidence.validIsin(parts[1]) ||
+            !amountPattern.matches(parts[4])) return null
         val quantity = parts[3].toIntOrNull()?.takeIf { it in 1..1_000_000 } ?: return null
         val at = parts[5].toLongOrNull() ?: return null
         if (at > nowMs || nowMs - at > MAX_AGE_MS) return null
@@ -52,7 +53,7 @@ internal object StopLossPrefillPolicy {
         val bottom: Int = 0
     )
     data class Frame(val app: String, val nodes: List<Node>)
-    enum class Stage { OPEN_FORM, VERIFY_FORM, ORDER_TYPE, CHOOSE_STOP, WRITE_STOP, VERIFY_STOP, WRITE_QUANTITY, VERIFY_QUANTITY, DONE }
+    enum class Stage { OPEN_FORM, VERIFY_FORM, ORDER_TYPE, CHOOSE_STOP, WRITE_STOP, VERIFY_STOP, WRITE_QUANTITY, VERIFY_QUANTITY, WAIT_OWNER, SUBMIT_ORDER, DONE }
     enum class Kind { CLICK, WRITE, ADVANCE, DONE, BLOCK }
     data class Decision(val kind: Kind, val index: Int = -1, val text: String = "", val next: Stage = Stage.DONE, val code: String = "")
 
@@ -92,6 +93,11 @@ internal object StopLossPrefillPolicy {
 
     fun decide(stage: Stage, f: Frame, draft: StopLossPrefillDraft): Decision {
         fun block(code: String) = Decision(Kind.BLOCK, code = code)
+        // A real broker confirmation page is never part of prefill.
+        // This check applies before even a harmless dropdown click/write.
+        if(f.nodes.any { norm(it.label) in setOf("order bestätigen","confirm order",
+                    "orderzusammenfassung","orderübersicht","orderdetails") })
+            return block("ORDER_BESTAETIGUNG_GESCHUETZT")
         if(stage==Stage.OPEN_FORM) {
             if(!base(f,draft)) return block("PRODUKT_ISIN_NICHT_ERKANNT")
             if(has(f,"Order platzieren")) {
@@ -154,6 +160,7 @@ internal object StopLossPrefillPolicy {
                     Decision(Kind.DONE,next=Stage.DONE)
                 else block("ANZAHL_EINGABE_NICHT_BESTAETIGT")
             }
+            Stage.WAIT_OWNER, Stage.SUBMIT_ORDER -> block("SEPARATE_OWNER_ORDER_FREIGABE_ERFORDERLICH")
             Stage.DONE -> Decision(Kind.DONE,next=Stage.DONE)
         }
     }

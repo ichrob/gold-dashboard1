@@ -3,6 +3,7 @@ package ch.bob.degirocompanion
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.app.Activity
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.os.SystemClock
 import android.provider.Settings
@@ -56,10 +57,24 @@ class DegiroReadOnlyActivity:Activity() {
         })
         grant=label("Lesedienst wird geprüft.")
         status=label(DegiroReadOnlySession.status)
-        label("Keine zweite Test-App und keine weitere Orderfreigabe: Bob nutzt ausschließlich den bestehenden Produkt-Lesedienst seiner signierten App. Maximal 45 Sekunden, keine PIN-Eingabe, keine Klicks oder Orders. Eine echte Position ist nicht erforderlich.")
+        label(if(BuildConfig.DEBUG)
+            "Android-Labor (Test) ist eine EIGENE App. Sie braucht eine eigene Bedienungshilfe-Freigabe. Graue Einträge mit „Gesteuert durch eingeschränkte Einstellung“ lassen sich NICHT direkt hier aktivieren. Zuerst unten die App-Info DIESES Labors öffnen, dort ggf. über ⋮ „Eingeschränkte Einstellungen zulassen“ auswählen (nur wenn du der Test-App vertraust). Danach erst die Bedienungshilfe prüfen. Die normale Bob-Handy-App bleibt unverändert. Maximal 45 Sekunden; keine PIN-Eingabe, keine Klicks oder Orders."
+            else
+            "Diese signierte Bob-Handy-App verwendet nur ihren eigenen bereits freigegebenen Lesedienst. Maximal 45 Sekunden, keine PIN-Eingabe, keine Klicks oder Orders. Eine echte Position ist nicht erforderlich.")
         column.addView(Button(this).apply {
             isAllCaps=false
-            text="Lesedienst-Berechtigung prüfen / Android-Einstellungen"
+            text="1 · App-Info DIESER Bob-App öffnen"
+            setOnClickListener {
+                // Direct system-owned settings route. Never grant restricted
+                // accessibility privileges programmatically or on a timer.
+                startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data=Uri.fromParts("package",packageName,null)
+                })
+            }
+        })
+        column.addView(Button(this).apply {
+            isAllCaps=false
+            text="2 · Bedienungshilfe prüfen / Android-Einstellungen"
             setOnClickListener { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
         })
         column.addView(Button(this).apply {
@@ -99,7 +114,7 @@ class DegiroReadOnlyActivity:Activity() {
             enabled && ProductReadDiagnostics.connected ->
                 "Lesedienst bereit: Bob – Handy: Produkte lesen."
             enabled -> "Android-Freigabe vorhanden, aber Lesedienst noch nicht verbunden."
-            else -> "Produkt-Lesedienst in dieser Bob-Handy-App nicht aktiviert. Keine Prüfung möglich. Über Android-Einstellungen freiwillig einschalten."
+            else -> "Produkt-Lesedienst für DIESE App nicht aktiviert. Bei einem grauen Eintrag zuerst die App-Info DIESER App öffnen, dort die Android-Einschränkung prüfen; danach freiwillig die Bedienungshilfe einschalten."
         }
         status.text=DegiroReadOnlySession.status+
             "\nStatus: "+DegiroReadOnlySession.lastCode+
@@ -109,7 +124,7 @@ class DegiroReadOnlyActivity:Activity() {
         val now=SystemClock.elapsedRealtime()
         if(!readerEnabled() || !ProductReadDiagnostics.connected) {
             showStatus()
-            status.text="Bob-Handy-Produktlesedienst fehlt oder ist nicht verbunden. Bitte nur die bestehende Bob-Handy-Bedienungshilfe prüfen. Keine Samsung-Sperre umgehen."
+            status.text="Der Produktlesedienst DIESER App fehlt oder ist nicht verbunden. Bei grauem Eintrag erst über App-Info dieser App die Android-Freigabe prüfen, dann die Bedienungshilfe. Keine automatische Umgehung."
             return
         }
         if(PhoneRemote.active() || PinReadinessProbe.running ||

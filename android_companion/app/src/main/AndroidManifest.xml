@@ -38,6 +38,9 @@
             <meta-data android:name="android.accessibilityservice" android:resource="@xml/workflow_reader" />
         </service>
         <activity android:name=".ProductReadActivity" android:exported="false" />
+        <!-- Non-exported local owner UI: first prefill, then separately approve
+             ONE matching real SELL Stop Loss order. No external order intents. -->
+        <activity android:name=".StopLossPrefillActivity" android:exported="false" />
         <!-- Strictly local mock simulator; neither activity can start an order or
              access the broker's UI. No new permissions or exported intent. -->
         <activity android:name=".StopLossSimulationActivity" android:exported="false" />

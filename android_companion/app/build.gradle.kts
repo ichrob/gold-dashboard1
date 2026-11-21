@@ -16,6 +16,8 @@ val bobHasSigning = listOf(bobStoreFile, bobStorePassword, bobKeyAlias, bobKeyPa
 android {
     namespace = "ch.bob.degirocompanion"
     compileSdk = 35
+    // Required for BuildConfig.DEBUG: lab APK must never submit real orders.
+    buildFeatures { buildConfig = true }
 
     defaultConfig {
         // The permanent user app: do not change between releases.

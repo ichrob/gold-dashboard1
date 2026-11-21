@@ -19,7 +19,11 @@ class IntegratedReadOnlySecurityTests(unittest.TestCase):
         activity=(JAVA/"DegiroReadOnlyActivity.kt").read_text()
         service=(JAVA/"ProductReadService.kt").read_text()
         section=service.split("    // Explicit, passive, foreground-only DEGIRO form detection.")[1].split(
-            "    // Only package/type metadata is used. Never read or retain event text.")[0]
+            "    // Dedicated local-only Stop Loss")[0]
+        # The adjacent owner-approved Stop Loss form service is NOT the passive
+        # observer; keep this assertion bound to the read-only code only.
+        self.assertIn("    // Dedicated local-only Stop Loss",service)
+        self.assertIn("    // Only package/type metadata is used. Never read or retain event text.",service)
         self.assertIn("DegiroStopLossReadOnly.inspect(snapshot)",section)
         for source in (policy,section):
             for prohibited in ("performAction(", "dispatchGesture(", "ACTION_CLICK",
@@ -31,6 +35,14 @@ class IntegratedReadOnlySecurityTests(unittest.TestCase):
         self.assertIn("ProductReadDiagnostics.connected",activity)
         self.assertIn('EXTRA_START_ONCE',activity)
         self.assertIn("Intent.createChooser",activity)
+        # A sideloaded lab APK has a DIFFERENT Android permission identity
+        # from the signed Bob Handy app: offer direct system App Info before
+        # opening Accessibility settings, never attempt to bypass Android.
+        self.assertIn('Settings.ACTION_APPLICATION_DETAILS_SETTINGS',activity)
+        self.assertIn('Uri.fromParts("package",packageName,null)',activity)
+        self.assertIn('Settings.ACTION_ACCESSIBILITY_SETTINGS',activity)
+        self.assertIn('Gesteuert durch eingeschränkte Einstellung',activity)
+
     def test_signed_main_app_has_its_own_one_tap_entry(self):
         main=(JAVA/"MainActivity.kt").read_text()
         self.assertIn("DEGIRO nur erkennen · 45 Sek.",main)

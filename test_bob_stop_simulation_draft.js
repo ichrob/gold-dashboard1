@@ -15,6 +15,12 @@ const spots={
  is_genuine_xauusd_spot:true,spot_price_as_of:time,xaus:4005,
  usd_eur_meta:{rate:0.9,fetchedAt:time}
 };
+// Browser uses this freshly computed model for an explicit copy into a
+// locally owner-approved SELL prefill; it never authorizes a broker order.
+const source=require('node:fs').readFileSync(require('node:path').join(__dirname,'bob_stop_assistant.js'),'utf8');
+assert.match(source,/data-copy-draft/);
+assert.match(source,/key==='simulation'\|\|key==='draft'/);
+assert.match(source,/key==='draft'/);
 const draft=stop.simulationDraft({product,stopGold:4010,targetGold:3900,spots,now});
 assert.equal(draft.available,true,JSON.stringify(draft));
 assert.equal(draft.raw,'BOB-STOP/1|DE000FB0A490|EUR|7|19.10|'+now);
