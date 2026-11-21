@@ -763,7 +763,9 @@ class ProductReadService : AccessibilityService() {
                 // That touch must NOT cancel the prepared broker session.
                 // A touch in DEGIRO (or any other app) still aborts an active
                 // automation; WAIT_OWNER was returned above for manual review.
-                if(event.packageName?.toString()!=applicationContext.packageName)
+                if(StopLossOwnerTouchPolicy.mustAbort(
+                        StopLossPrefillSession.stage,
+                        event.packageName?.toString(),applicationContext.packageName))
                     StopLossPrefillSession.finish("USER_STOP")
                 return
             }
