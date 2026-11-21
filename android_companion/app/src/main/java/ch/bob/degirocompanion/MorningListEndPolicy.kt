@@ -131,6 +131,23 @@ internal object MorningListEndPolicy {
         !nodes.any { it.password || it.sensitive || it.editable } &&
         safeFooterProtection(nodes)
 
+    /** Existing needsEdgeCapture authorizes one final cropped photo when all
+     * ten identities were seen but at least one complete product row was NOT
+     * independently covered. Do not submit just because ten labels exist.
+     * No tapping, scrolling or permission to approve ten original rows. */
+    fun needsUncoveredFooterCapture(nodes: List<MorningReadPolicy.Node>,
+                                    capturedImages: Int, seen: Set<String>,
+                                    covered: Set<String>, current: List<String>,
+                                    action: MorningReadPolicy.Action): Boolean =
+        capturedImages == 3 && needsEdgeCapture(capturedImages,seen,covered) &&
+        current.isNotEmpty() && current.size <= 10 &&
+        current.distinct() == current &&
+        current.all { SeriesEvidence.validIsin(it) && it in seen } &&
+        action.kind == MorningReadPolicy.Kind.COLLECT &&
+        action.isins == current && hasVerifiedFooter(nodes) &&
+        !nodes.any { it.editable || it.containsInput || it.password || it.sensitive } &&
+        safeFooterProtection(nodes)
+
     fun maySubmitAtCaptureLimit(capturedImages: Int, seen: Set<String>): Boolean =
         capturedImages == 4 && seen.size in 5..9 && seen.all(SeriesEvidence::validIsin)
 }

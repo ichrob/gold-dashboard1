@@ -1710,9 +1710,11 @@ class ProductReadService : AccessibilityService() {
             // bounded verified-footer recapture over scrolling the same rows.
             // This is never a click or an authorization of a product/order.
             val footerFirst=root.windowId==listWindowId &&
-                MorningListEndPolicy.needsFooterRecapture(descriptions,listImages.length(),
-                    listSeenIds,action.isins,action)
-            if(listImages.length()==3 && listSeenIds.size in 5..9) {
+                (MorningListEndPolicy.needsFooterRecapture(descriptions,listImages.length(),
+                    listSeenIds,action.isins,action) ||
+                 MorningListEndPolicy.needsUncoveredFooterCapture(descriptions,listImages.length(),
+                    listSeenIds,listCoveredIds,action.isins,action))
+            if(listImages.length()==3 && listSeenIds.size in 5..10) {
                 ProductReadDiagnostics.record(when {
                     footerFirst -> ProductReadDiagnostics.Outcome.LIST_FOOTER_RECAPTURE_APPROVED
                     MorningListEndPolicy.hasVerifiedFooter(descriptions) ->
@@ -1734,9 +1736,7 @@ class ProductReadService : AccessibilityService() {
                 };child!=ancestor && found
             } }.singleOrNull()
             if(chosen==null) {
-                if(candidates.isEmpty() && root.windowId==listWindowId &&
-                    MorningListEndPolicy.needsFooterRecapture(descriptions,listImages.length(),
-                        listSeenIds,action.isins,action)) {
+                if(candidates.isEmpty() && footerFirst) {
                     // Exactly one additional screenshot of the same safe, cropped
                     // list footer; never a new tap, a claimed tenth row or an order.
                     footerRecapture=true
@@ -2224,6 +2224,17 @@ class ProductReadService : AccessibilityService() {
 
     private fun deliverMorningList(generation:Int) {
         if(generation!=listGeneration)return
+        // Decision-path evidence for unexpected three-image 9/10 failures.
+        // Only aggregate local counts leave the phone, never ISINs or quotes.
+        if(listImages.length()==3) ProductReadDiagnostics.record(when {
+            listSeenIds.size==10 && listCoveredIds.size==10 ->
+                ProductReadDiagnostics.Outcome.LIST_THREE_IMAGE_LOCAL_COMPLETE
+            listSeenIds.size==10 ->
+                ProductReadDiagnostics.Outcome.LIST_THREE_IMAGE_MISSING_ROW_COVERAGE
+            listSeenIds.size in 5..9 ->
+                ProductReadDiagnostics.Outcome.LIST_THREE_IMAGE_MISSING_IDENTITIES
+            else -> ProductReadDiagnostics.Outcome.LIST_THREE_IMAGE_OTHER
+        })
         val body=org.json.JSONObject().put("batchId",listBatch).put("sessionId",PhoneRemote.sessionId())
             .put("images",org.json.JSONArray(listImages.toString()))
             // Original observed Gold ISIN hints are retained ONLY in the
