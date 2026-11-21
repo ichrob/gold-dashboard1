@@ -160,6 +160,33 @@ class ListTests(unittest.TestCase):
             'DUPLICATE_IMAGE','CAPTURE_TIME','BATCH_CONFLICT','LIST_REJECTED'
         )).issubset(images.UPLOAD_ERROR_CODES))
 
+    def test_server_upload_error_passes_only_allowlisted_technical_code(self):
+        import io,json
+        from urllib.error import HTTPError
+        headers={'Authorization':'Bearer '+'a'*64}
+        def rejected(code):
+            def forward(*_args,**_kwargs):
+                body=json.dumps({'errorCode':code,'error':'private account contents'}).encode()
+                raise HTTPError('https://private.invalid/android-remote',400,
+                                'bad request',None,io.BytesIO(body))
+            return forward
+        for remote_code,expected in (
+            ('DUPLICATE_IMAGE','DUPLICATE_IMAGE'),
+            ('CAPTURE_TIME','CAPTURE_TIME'),
+            ('private account contents','LIST_REJECTED')):
+            h=Handler(batch(),headers=headers)
+            http.route(h,'POST','/api/android-list/upload',rejected(remote_code))
+            self.assertEqual(h.code,400)
+            self.assertEqual(json.loads(h.wfile.getvalue())['errorCode'],expected)
+            self.assertNotIn(b'private account contents',h.wfile.getvalue())
+        # A malformed request never leaks raw data and never reaches backend.
+        h=Handler(batch(),headers={'Authorization':'Bearer '+'a'*64,
+                                  'Content-Type':'application/octet-stream'})
+        http.route(h,'POST','/api/android-list/upload',
+                   lambda *_:self.fail('Invalid device request forwarded'))
+        self.assertEqual(h.code,400)
+        self.assertEqual(json.loads(h.wfile.getvalue())['errorCode'],'LIST_SCHEMA')
+
     def test_browser_cannot_upload_and_device_cannot_read(self):
         h=Handler(batch(),auth=True)
         http.route(h,'POST','/api/android-list/upload',lambda *_:self.fail('cookie upload'))
