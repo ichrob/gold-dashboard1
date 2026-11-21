@@ -117,6 +117,7 @@ class ProductReadService : AccessibilityService() {
     // Once per owner-started Gold list: make the fourth photo cover a new
     // observed viewport instead of repeating the identical verified footer.
     private var listGapReframeSent = false
+    private var listGapReframeAttempted = false
     private var listFirstIds = emptyList<String>()
     private val listSeenIds = mutableSetOf<String>()
     private val listCoveredIds = mutableSetOf<String>()
@@ -135,7 +136,7 @@ class ProductReadService : AccessibilityService() {
         listGeneration++; listResumeChecked=false; listTopSeekSteps=0; listAllResultsTappedAt=0L
         listGenericTurboFallback=false;listGoldPreviewConfirmed=false
         listVerifiedPreviewFallback=false;listGenericTurboBackAt=0L
-        listBusy=false; listScrolled=false; listScrollTries=0; listGapReframeSent=false
+        listBusy=false; listScrolled=false; listScrollTries=0; listGapReframeSent=false; listGapReframeAttempted=false
         listFirstIds=emptyList(); listSeenIds.clear(); listCoveredIds.clear(); listCropTop=null; listWindowId=null; while(listImages.length()>0) listImages.remove(0)
         listBatch=java.util.UUID.randomUUID().toString().replace("-","")
     }
@@ -1749,13 +1750,14 @@ class ProductReadService : AccessibilityService() {
                     else -> ProductReadDiagnostics.Outcome.LIST_FOOTER_RECAPTURE_NO_FOOTER
                 })
             }
-            // The original successful 10/10 reader scrolled through distinct
-            // views before uploading. Newer runs repeatedly upload the same
-            // footer as their fourth image; this contributes no new row proof.
-            // On the EXACT previously verified Gold footer, make one bounded
-            // accessibility BACKWARD scroll to expose the row boundary first.
-            // This is a list-container scroll, NEVER a product/order tap.
-            if(footerFirst && listImages.length()==3 && !listGapReframeSent) {
+            // Samsung 11051: the broad ACTION_SCROLL_BACKWARD moved an entire
+            // viewport. Its fourth image repeated seven already verified rows
+            // while the tenth remained absent. Before the last image, move only
+            // a short distance inside the SAME independently verified Gold
+            // result list to expose a clipped boundary row. One attempt only.
+            // Never send a gesture on an unverified window, form or launcher.
+            if(footerFirst && listImages.length()==3 && !listGapReframeAttempted) {
+                listGapReframeAttempted=true
                 val backward=nodes.indices.filter { i ->
                     val n=nodes[i];val d=descriptions[i]
                     n.isVisibleToUser && n.isEnabled && !n.isEditable && !n.isPassword &&
@@ -1772,18 +1774,71 @@ class ProductReadService : AccessibilityService() {
                     }
                     child!=ancestor && found
                 } }.singleOrNull()
-                if(target!=null) {
-                    lastNavigation=SystemClock.elapsedRealtime()
-                    if(nodes[target].performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)) {
-                        listGapReframeSent=true
-                        listScrolled=true
-                        GoldSearchRun.event("LIST_GAP_REFRAME_SCROLL_SENT",Instant.now().toString())
-                        handler.postDelayed({ queueRead(500) },650)
-                        return
+                if(target==null) {
+                    ProductReadDiagnostics.record(
+                        ProductReadDiagnostics.Outcome.LIST_GAP_REFRAME_TARGET_MISSING)
+                } else {
+                    val frame=Rect();root.getBoundsInScreen(frame)
+                    val scroller=Rect();nodes[target].getBoundsInScreen(scroller)
+                    // Keep the entire drag below the search/category headers,
+                    // above the bottom Markets/Portfolio nav and on the LEFT,
+                    // away from DEGIRO's right-side Kaufen/Verkaufen actions.
+                    val top=maxOf(scroller.top,frame.top+
+                        maxOf((listCropTop ?: 0)+220,frame.height()/3))
+                    val bottom=minOf(scroller.bottom,frame.bottom-220)
+                    val x=frame.left+frame.width()/4
+                    val distance=minOf(210,(bottom-top)/3)
+                    val safe=frame.width()>400 && bottom-top>=480 &&
+                        distance>=140 && x>=scroller.left+32 && x<=scroller.right-32 &&
+                        root.windowId==listWindowId &&
+                        root.packageName?.toString()==ProductScreenEvidence.PACKAGE
+                    if(!safe) {
+                        ProductReadDiagnostics.record(
+                            ProductReadDiagnostics.Outcome.LIST_GAP_REFRAME_BOUNDS_REJECTED)
+                    } else {
+                        val center=top+(bottom-top)/2
+                        val path=android.graphics.Path().apply {
+                            moveTo(x.toFloat(),(center-distance/2).toFloat())
+                            lineTo(x.toFloat(),(center+distance/2).toFloat())
+                        }
+                        val gesture=android.accessibilityservice.GestureDescription.Builder()
+                            .addStroke(android.accessibilityservice.GestureDescription.StrokeDescription(
+                                path,0,420)).build()
+                        val generation=listGeneration
+                        listBusy=true
+                        val sent=dispatchGesture(gesture,object:GestureResultCallback() {
+                            override fun onCompleted(gestureDescription:
+                                android.accessibilityservice.GestureDescription?) {
+                                if(generation!=listGeneration)return
+                                listBusy=false
+                                listScrolled=true
+                                ProductReadDiagnostics.record(
+                                    ProductReadDiagnostics.Outcome.LIST_GAP_REFRAME_COMPLETED)
+                                queueRead(500)
+                            }
+                            override fun onCancelled(gestureDescription:
+                                android.accessibilityservice.GestureDescription?) {
+                                if(generation!=listGeneration)return
+                                listBusy=false
+                                listScrolled=false
+                                ProductReadDiagnostics.record(
+                                    ProductReadDiagnostics.Outcome.LIST_GAP_REFRAME_CANCELLED)
+                                queueRead(500)
+                            }
+                        },handler)
+                        if(sent) {
+                            listGapReframeSent=true
+                            ProductReadDiagnostics.record(
+                                ProductReadDiagnostics.Outcome.LIST_GAP_REFRAME_GESTURE_SENT)
+                            return
+                        }
+                        listBusy=false
+                        ProductReadDiagnostics.record(
+                            ProductReadDiagnostics.Outcome.LIST_GAP_REFRAME_REJECTED)
                     }
                 }
-                // No unique safe container: use the original fourth-photo
-                // path rather than guessing a gesture or leaving Gold.
+                // If no bounded gesture is possible, retain the original
+                // fourth-photo path and its strict ten-row server validation.
             }
             val candidates=if(footerFirst) emptyList() else nodes.indices.filter { i ->
                 val n=nodes[i]; val d=descriptions[i]

@@ -87,7 +87,22 @@ jobs:
           assert 'android:canTakeScreenshot="true"' in config
           assert 'android:packageNames="nl.degiro.trader"' in config
           service = Path("android_companion/app/src/main/java/ch/bob/degirocompanion/ProductReadService.kt").read_text()
-          assert service.count('dispatchGesture(') == 1
+          # Two strictly scoped gestures: one verified search-field tap and
+          # one owner-started, bounded Gold-list footer reframe. No order clicks.
+          assert service.count('dispatchGesture(') == 2
+          footer = service.split('private fun captureMorningList(', 1)[1].split('private fun checkpoint()', 1)[0]
+          assert footer.count('dispatchGesture(') == 1
+          for proof in (
+              'footerFirst && listImages.length()==3 && !listGapReframeAttempted',
+              'listGapReframeAttempted=true',
+              'root.windowId==listWindowId',
+              'root.packageName?.toString()==ProductScreenEvidence.PACKAGE',
+              '!d.containsInput && !d.sensitive',
+              'distance=minOf(210,(bottom-top)/3)',
+              'frame.bottom-220', 'frame.left+frame.width()/4',
+              'distance>=140',
+          ):
+              assert proof in footer
           assert 'action.code=="SEARCH_NO_PROGRESS" && !searchTapAttempted' in service
           assert 'SearchTapPolicy.center(' in service
           print("Final APK checked: opt-in diagnostic transport; explicit read-only product service.")
