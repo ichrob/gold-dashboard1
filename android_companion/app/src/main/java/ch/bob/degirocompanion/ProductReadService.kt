@@ -759,7 +759,13 @@ class ProductReadService : AccessibilityService() {
             if(StopLossPrefillSession.stage==StopLossPrefillPolicy.Stage.WAIT_OWNER)
                 return // Only local Bob Activity can approve the exact order.
             if(event?.eventType==AccessibilityEvent.TYPE_TOUCH_INTERACTION_START) {
-                StopLossPrefillSession.finish("USER_STOP");return
+                // Explicit approval is entered in our own non-exported Activity.
+                // That touch must NOT cancel the prepared broker session.
+                // A touch in DEGIRO (or any other app) still aborts an active
+                // automation; WAIT_OWNER was returned above for manual review.
+                if(event.packageName?.toString()!=applicationContext.packageName)
+                    StopLossPrefillSession.finish("USER_STOP")
+                return
             }
             if(event?.eventType==AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED ||
                 event?.eventType==AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED)
