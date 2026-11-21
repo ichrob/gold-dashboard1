@@ -93,7 +93,9 @@ class StopLossPrefillActivity : Activity() {
             status.text="Bob-Lesedienst ist nicht eingeschaltet. Zuerst die Bedienungshilfe aktivieren."; return
         }
         if (PhoneRemote.active() || MorningReadRun.running || GoldSearchRun.running ||
-            PinReadinessProbe.running || ProductReadRequest.active(SystemClock.elapsedRealtime())) {
+            PinReadinessProbe.running || ProductReadRequest.active(SystemClock.elapsedRealtime()) ||
+            MorningListDelivery.waiting || BobTradeDimMode.running ||
+            DegiroReadOnlySession.active(SystemClock.elapsedRealtime())) {
             status.text="Andere DEGIRO-Lesesitzung läuft. Zuerst dort STOPP wählen."; return
         }
         val launch=packageManager.getLaunchIntentForPackage("nl.degiro.trader")
