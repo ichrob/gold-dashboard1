@@ -1065,6 +1065,61 @@ class MorningReadPolicyTest {
             verified+MorningReadPolicy.Node("Order bestätigen"),captured))
     }
 
+    @Test fun quarantinedGoldSearchIgnoresDuplicateGlobalOrderLabelButNotOrderForms() {
+        val target="DE000FD0S0G4"
+        val field=MorningReadPolicy.Node("Gold",id="search-input",
+            editable=true,focused=false,hint="Mit Namen, ISIN oder Symbol suchen")
+        val preview=listOf(
+            MorningReadPolicy.Node("Hebelprodukte",selected=true),
+            MorningReadPolicy.Node("Top Ergebnisse"))
+        val launcher=MorningReadPolicy.Node("Order platzieren",clickable=true)
+        val duplicate=MorningReadPolicy.Node("Order platzieren",clickable=false)
+        val page=listOf(field)+preview+launcher+duplicate
+        val focus=MorningReadPolicy.localResearchDecision(page,target,
+            keyboardReady=false,resultOpened=false)
+        assertEquals(MorningReadPolicy.Kind.FOCUS,focus.kind)
+        assertEquals(0,focus.index)
+        assertEquals("GOLD_READONLY_SEARCH_RECOVERED",focus.code)
+        val query=MorningReadPolicy.localResearchDecision(
+            listOf(field.copy(focused=true))+preview+launcher+duplicate,
+            target,keyboardReady=true,resultOpened=false)
+        assertEquals(MorningReadPolicy.Kind.QUERY,query.kind)
+        assertEquals(0,query.index)
+        // Without the real search EditText a rebuilding Gold preview can
+        // only WAIT. No launcher, result row or synthetic field is clicked.
+        val passive=MorningReadPolicy.localResearchDecision(
+            preview+launcher+duplicate,target,keyboardReady=false,resultOpened=false)
+        assertEquals(MorningReadPolicy.Kind.WAIT,passive.kind)
+        assertEquals("GOLD_SEARCH_REBUILDING",passive.code)
+        // Fail closed on every real order field or ambiguous extra input.
+        for(unsafe in listOf(
+            MorningReadPolicy.Node("Order bestätigen"),
+            MorningReadPolicy.Node("Limitpreis"),
+            MorningReadPolicy.Node("Stückzahl"),
+            MorningReadPolicy.Node("Orderart"),
+            MorningReadPolicy.Node("Passwort",password=true),
+            MorningReadPolicy.Node("Konto",sensitive=true),
+            MorningReadPolicy.Node("",editable=true,hint="Limit"))) {
+            assertEquals("Must BLOCK $unsafe",MorningReadPolicy.Kind.BLOCK,
+                MorningReadPolicy.localResearchDecision(page+unsafe,target,
+                    keyboardReady=true,resultOpened=false).kind)
+        }
+        assertNotEquals(MorningReadPolicy.Kind.QUERY,
+            MorningReadPolicy.localResearchDecision(
+                listOf(field.copy(id="",hint=""))+preview+launcher+duplicate,
+                target,keyboardReady=true,resultOpened=false).kind)
+        assertNotEquals(MorningReadPolicy.Kind.QUERY,
+            MorningReadPolicy.localResearchDecision(
+                listOf(field)+preview.filterNot { it.text=="Hebelprodukte" }+
+                    launcher+duplicate,target,keyboardReady=true,
+                resultOpened=false).kind)
+        assertNotEquals(MorningReadPolicy.Kind.QUERY,
+            MorningReadPolicy.localResearchDecision(
+                listOf(field)+preview+
+                    launcher.copy(parent=0)+duplicate,
+                target,keyboardReady=true,resultOpened=false).kind)
+    }
+
     @Test fun nineRowResearchOnSamsungReusesTheAlreadyWorkingGoldField() {
         val target="DE000FD0S0G4"
         val search=MorningReadPolicy.Node("Gold",id="bob:search_input",
