@@ -2028,6 +2028,7 @@ class ProductReadService : AccessibilityService() {
         var returnedTowardSearch=false
         var ownerLoginVisible=false
         var goldSearchRebuilding=false
+        var passiveSearchWait=false
         val safe=try {
             navigationTree(root,live,descriptions)
             ownerLoginVisible=LocalResearchOwnerLoginPolicy.visible(descriptions)
@@ -2036,6 +2037,14 @@ class ProductReadService : AccessibilityService() {
                 descriptions,local.first(),keyboardVisible(),resultOpened=false)
             goldSearchRebuilding=decision.kind==MorningReadPolicy.Kind.WAIT &&
                 decision.code=="GOLD_SEARCH_REBUILDING"
+            // A temporarily missing/ambiguous SEARCH is not a command to
+            // click a guessed location. The known Gold context may resettle
+            // within the original unlocked owner session, without actions.
+            passiveSearchWait=decision.kind==MorningReadPolicy.Kind.WAIT &&
+                decision.code in setOf("SEARCH_MISSING","SEARCH_TREE_EMPTY",
+                    "SEARCH_NOT_ACTIONABLE","SEARCH_AMBIGUOUS",
+                    "GOLD_SEARCH_REBUILDING","CATEGORY_RESULTS_PENDING",
+                    "RESULT_MISSING")
             val ready=decision.kind in setOf(MorningReadPolicy.Kind.SEARCH,
                 MorningReadPolicy.Kind.FOCUS,MorningReadPolicy.Kind.QUERY) &&
                 !MorningReadPolicy.genericTurboDirectory(descriptions)
@@ -2160,6 +2169,19 @@ class ProductReadService : AccessibilityService() {
             handler.postDelayed({
                 continueLocalGoldResearch(local,ticket,attempt+1,startedAt)
             },500)
+        } else if(LocalResearchForegroundPolicy.mayWaitForVisibleSearch(
+                SystemClock.elapsedRealtime()-startedAt,
+                PhoneRemote.active() && PhoneRemote.sessionId()==ticket,
+                power.isInteractive && !keyguard.isKeyguardLocked &&
+                    !keyguard.isDeviceLocked,brokerVisible=true,
+                readOnlySearchWait=passiveSearchWait)) {
+            // Eight fast snapshots are insufficient on Samsung WebView.
+            // These extra polls carry no click, text, scroll, screenshot or
+            // changed identity; a real protected page still fails immediately.
+            ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LOCAL_RESEARCH_SEARCH_RETRY)
+            handler.postDelayed({
+                continueLocalGoldResearch(local,ticket,attempt+1,startedAt)
+            },LocalResearchForegroundPolicy.POLL_MS)
         } else {
             ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LOCAL_RESEARCH_SEARCH_UNAVAILABLE)
             PhoneDiagnostics.queue(this)
