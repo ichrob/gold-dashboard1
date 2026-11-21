@@ -5,6 +5,17 @@
 'use strict';
 const SCANNER_KEY='bobDegiroProductsV2';
 const MAX_ITEMS=10000;
+/** Hide issuer-confirmed factor instruments from Bob's ACTIVE Gold KO views.
+ * Preserve a real held depot position for the owner's portfolio visibility.
+ * Never delete original DEGIRO screenshot evidence or change 10-row validation. */
+function factorExcluded(item){
+ return item?.isin==='DE000PU0D101' ||
+  item?.state==='excluded-factor' || item?.sourceStatus==='excluded-factor' ||
+  item?.type==='factor' || item?.productKind==='factor' ||
+  (Array.isArray(item?.missing)&&item.missing.includes('factor')) ||
+  /\b(faktor(?:produkt)?|factor(?:product)?|constant leverage|konstant.?hebel)\b/i
+   .test(String(item?.name||item?.product||''));
+}
 function validIsin(isin){
  if(typeof isin!=='string'||!/^[A-Z]{2}[A-Z0-9]{9}[0-9]$/.test(isin))return false;
  const digits=isin.replace(/[A-Z]/g,c=>String(c.charCodeAt(0)-55));
@@ -136,6 +147,7 @@ function combine(depot,watchlist,audit,visibleQuotes=[],now=Date.now()){
   x.inAudit=true;
   x.auditStatus=a.status;
   x.sourceStatus=typeof info.state==='string'?info.state.slice(0,80):'';
+  if(factorExcluded(info))x.productKind='factor';
   x.quoteSourceAt=safeTime(info.quoteSourceAt);
   if(!x.direction&&['LONG','SHORT'].includes(info.direction))x.direction=info.direction;
   if(!x.inDepot&&!x.inWatchlist&&typeof info.name==='string')x.name=info.name.slice(0,180);
@@ -155,7 +167,9 @@ function combine(depot,watchlist,audit,visibleQuotes=[],now=Date.now()){
    ?require('./product_evidence_contract.js'):null);
   if(contract?.fromCombined)x.evidence=contract.fromCombined(x,now);
  }
- return Array.from(indexed.values()).sort((a,b)=>
+ return Array.from(indexed.values())
+  .filter(x=>x.inDepot || !factorExcluded(x))
+  .sort((a,b)=>
   Number(b.inWatchlist)-Number(a.inWatchlist)||
   Number(b.inDepot)-Number(a.inDepot)||a.isin.localeCompare(b.isin));
 }
@@ -373,7 +387,7 @@ function mount(){
  });
  setTimeout(()=>paint(),2000);
 }
-const api={validIsin,readWatchlist,updateEvidenceHistory,safeTime,numericPrice,quoteObservation,auditQuote,safeAudit,combine,summary,zurichQuotePhase,quotePhaseMessage,mount};
+const api={validIsin,factorExcluded,readWatchlist,updateEvidenceHistory,safeTime,numericPrice,quoteObservation,auditQuote,safeAudit,combine,summary,zurichQuotePhase,quotePhaseMessage,mount};
 if(typeof module==='object'&&module.exports)module.exports=api;
 root.BobDegiroAllProducts=api;
 if(!root.document)return;
