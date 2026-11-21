@@ -170,6 +170,43 @@ class MorningListEndPolicyTest {
             3,seen,visible,action()))
     }
 
+    @Test fun tenSeenButIncompleteRowCoverageNeedsFourthSafeFooterPhoto() {
+        val ten=(ids+listOf("DE000SQ02JQ6","DE000FG8K0P8",
+            "DE000FG77MY4","DE000FG8NHQ3")).toSet()
+        assertEquals(10,ten.size)
+        assertTrue(ten.all(SeriesEvidence::validIsin))
+        val incomplete=ten-"DE000FG8NHQ3"
+        val visible=action().isins
+        val collected=action()
+        assertTrue(MorningListEndPolicy.needsEdgeCapture(3,ten,incomplete))
+        assertTrue(MorningListEndPolicy.needsUncoveredFooterCapture(
+            page(),3,ten,incomplete,visible,collected))
+        assertFalse(MorningListEndPolicy.needsUncoveredFooterCapture(
+            page(),2,ten,incomplete,visible,collected))
+        assertFalse(MorningListEndPolicy.needsUncoveredFooterCapture(
+            page(),4,ten,incomplete,visible,collected))
+        assertFalse(MorningListEndPolicy.needsUncoveredFooterCapture(
+            page(),3,ten,ten,visible,collected))
+        assertFalse(MorningListEndPolicy.needsUncoveredFooterCapture(
+            page().dropLast(1),3,ten,incomplete,visible,collected))
+        for(unsafe in listOf(
+            MorningReadPolicy.Node("Order bestätigen"),
+            MorningReadPolicy.Node("Limitpreis"),
+            MorningReadPolicy.Node("Stückzahl"),
+            MorningReadPolicy.Node("",password=true),
+            MorningReadPolicy.Node("",editable=true,hint="Anzahl"),
+            MorningReadPolicy.Node("",sensitive=true),
+            MorningReadPolicy.Node("Order platzieren",clickable=true,parent=1))) {
+            assertFalse("Unsafe footer $unsafe",MorningListEndPolicy.needsUncoveredFooterCapture(
+                page(unsafe),3,ten,incomplete,visible,collected))
+        }
+        assertFalse(MorningListEndPolicy.needsUncoveredFooterCapture(
+            page(),3,ten,incomplete,listOf("DE000INVALID"),collected))
+        assertFalse(MorningListEndPolicy.needsUncoveredFooterCapture(
+            page(),3,ten,incomplete,visible,
+            MorningReadPolicy.Action(MorningReadPolicy.Kind.SEARCH,isins=visible)))
+    }
+
     @Test fun fourImagesMayBeSubmittedButNeverCountAsLocalCompletion() {
         assertTrue(MorningListEndPolicy.maySubmitAtCaptureLimit(4,ids.toSet()))
         assertFalse(MorningListEndPolicy.maySubmitAtCaptureLimit(3,ids.toSet()))
