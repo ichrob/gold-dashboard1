@@ -475,7 +475,7 @@ if(complementImage(phone,[row(7)+'\n'+row(8),row(7)+'\n'+row(8)])!==null)
     def test_cgroup_file_cache_reclaim_is_bounded_and_only_measured_freed_ram_counts(self):
         mib=1024*1024
         writes=[]
-        stat='inactive_file 100663296\\nfile_dirty 4194304\\nfile_writeback 0\\n'
+        stat='inactive_file 100663296\nfile_dirty 4194304\nfile_writeback 0\n'
         after=worker.try_reclaim_ocr_file_cache(320*mib,stat_text=stat,
             reclaim_writer=lambda n:writes.append(n),
             memory_reader=lambda:306*mib)
@@ -491,8 +491,8 @@ if(complementImage(phone,[row(7)+'\n'+row(8),row(7)+'\n'+row(8)])!==null)
         self.assertEqual(writes,[32*mib])
         # If all inactive pages are dirty or cache is small, never write.
         writes.clear()
-        for stats in ('inactive_file 8388608\\n',
-                      'inactive_file 67108864\\nfile_dirty 67108864\\n',
+        for stats in ('inactive_file 8388608\n',
+                      'inactive_file 67108864\nfile_dirty 67108864\n',
                       'invalid cache fixture',''):
             self.assertIsNone(worker.try_reclaim_ocr_file_cache(
                 320*mib,stat_text=stats,
@@ -511,9 +511,9 @@ if(complementImage(phone,[row(7)+'\n'+row(8),row(7)+'\n'+row(8)])!==null)
         mib=1024*1024
         # The normal 196 MiB reserve remains a hard admission test,
         # but measured cache reclaimed *before* admission can free space.
-        with patch.object(worker,'container_memory_bytes',return_value=320*mib), \\
-             patch.object(worker,'try_reclaim_ocr_file_cache',return_value=300*mib) as reclaim, \\
-             patch('memory_watch.release_free_pages'),patch('subprocess.Popen') as spawn, \\
+        with patch.object(worker,'container_memory_bytes',return_value=320*mib), \
+             patch.object(worker,'try_reclaim_ocr_file_cache',return_value=300*mib) as reclaim, \
+             patch('memory_watch.release_free_pages'),patch('subprocess.Popen') as spawn, \
              patch.object(worker,'wait_ocr',return_value=0):
             result=worker.guarded_ocr_run(['ocr'],input='[]',text=True,
                 capture_output=True,timeout=35,check=True,env={},close_fds=True)
@@ -521,16 +521,16 @@ if(complementImage(phone,[row(7)+'\n'+row(8),row(7)+'\n'+row(8)])!==null)
             reclaim.assert_called_once_with(320*mib)
             spawn.assert_called_once()
         # When Render denies memory.reclaim, the original defer remains.
-        with patch.object(worker,'container_memory_bytes',return_value=320*mib), \\
-             patch.object(worker,'try_reclaim_ocr_file_cache',return_value=None), \\
+        with patch.object(worker,'container_memory_bytes',return_value=320*mib), \
+             patch.object(worker,'try_reclaim_ocr_file_cache',return_value=None), \
              patch('memory_watch.release_free_pages'),patch('subprocess.Popen') as spawn:
             with self.assertRaises(worker.OcrMemoryDeferred):
                 worker.guarded_ocr_run(['ocr'],input='[]',text=True,
                     capture_output=True,timeout=35,check=True,env={},close_fds=True)
             spawn.assert_not_called()
         # Even a successful 32 MiB reclaim is not enough for very high RAM.
-        with patch.object(worker,'container_memory_bytes',return_value=420*mib), \\
-             patch.object(worker,'try_reclaim_ocr_file_cache',return_value=388*mib), \\
+        with patch.object(worker,'container_memory_bytes',return_value=420*mib), \
+             patch.object(worker,'try_reclaim_ocr_file_cache',return_value=388*mib), \
              patch('memory_watch.release_free_pages'),patch('subprocess.Popen') as spawn:
             with self.assertRaises(worker.OcrMemoryDeferred):
                 worker.guarded_ocr_run(['ocr'],input='[]',text=True,
