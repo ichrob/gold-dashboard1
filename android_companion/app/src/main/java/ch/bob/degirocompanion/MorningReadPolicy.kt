@@ -349,7 +349,8 @@ internal object MorningReadPolicy {
             // A genuine global launcher is outside the individual product card.
             // Refuse a launcher nested inside an identified result even if its
             // isolated button label is otherwise valid.
-            val launcherIndex=launcherIds.singleOrNull() ?: return null
+            val launcherIndex=launcherIds.filter { canClick(nodes[it]) }
+                .singleOrNull() ?: return null
             var parent=nodes[launcherIndex].parent
             var steps=0
             while(parent in nodes.indices && steps++<nodes.size) {
@@ -802,7 +803,7 @@ internal object MorningReadPolicy {
             val input=nodes[index]
             if(!input.enabled || input.password || input.sensitive ||
                 !isSearchInput(input.id,input.description,input.hint) ||
-                input.text !in setOf("Gold",""))return null
+                input.text !in setOf("Gold","",target))return null
             // Never focus a search field nested in an order launcher, nor
             // treat an order node nested in this input as a search target.
             val markers=nodes.indices.filter { i ->
@@ -815,6 +816,15 @@ internal object MorningReadPolicy {
             // They are safe only when they lead to this ONE real EditText.
             if(nodes.indices.any { i -> nodes[i].containsInput &&
                 i!=index && !below(index,i) })return null
+            if(input.text==target) {
+                // Search already contains this exact ISIN. Never retype it
+                // or trust an aggregate K/V row as a product click. Open
+                // only the title independently accepted by resultTapIndex.
+                val title=resultTapIndex(nodes,target)
+                return if(title!=null)
+                    Action(Kind.RESULT,title,code="GOLD_READONLY_RESULT_RECOVERED")
+                else Action(Kind.WAIT,code="RESULT_MISSING")
+            }
             return Action(if(input.focused && keyboardReady) Kind.QUERY
                 else Kind.FOCUS,index,code="GOLD_READONLY_SEARCH_RECOVERED")
         }
@@ -1232,9 +1242,24 @@ internal object MorningReadPolicy {
         val marked=nodes.indices.filter { i ->
             listOf(nodes[i].text,nodes[i].description,nodes[i].hint).any(orderMarkers.first().second::containsMatchIn)
         }
-        val index=marked.singleOrNull() ?: return reject(LauncherIssue.MARKER_COUNT)
+        // Samsung may expose ONE real global order launcher alongside a
+        // passive duplicate accessibility text label. Never permit two
+        // actionable order buttons, or a non-exact duplicate/aggregate form.
+        if(marked.size !in 1..4) return reject(LauncherIssue.MARKER_COUNT)
+        val index=marked.filter { canClick(nodes[it]) }.singleOrNull()
+            ?: return reject(LauncherIssue.MARKER_COUNT)
         val launcher=nodes[index]
         val exact=Regex("(?iu)^(order platzieren|place order)$")
+        for(passiveIndex in marked.filter { it!=index }) {
+            val passive=nodes[passiveIndex]
+            if(passive.clickable || passive.clickAction || passive.editable ||
+               passive.containsInput || passive.password || passive.sensitive)
+                return reject(LauncherIssue.MARKER_COUNT)
+            if(listOf(passive.text,passive.description,passive.hint,passive.row)
+                    .filter(String::isNotBlank)
+                    .any { !exact.matches(normalized(it)) })
+                return reject(LauncherIssue.LAUNCHER_LABEL)
+        }
         if (!canClick(launcher) || launcher.editable || launcher.containsInput || launcher.password || launcher.sensitive) return reject(LauncherIssue.LAUNCHER_UNSAFE)
         if (listOf(launcher.text,launcher.description,launcher.hint).filter(String::isNotBlank)
                 .any { !exact.matches(normalized(it)) }) return reject(LauncherIssue.LAUNCHER_LABEL)
@@ -1251,8 +1276,11 @@ internal object MorningReadPolicy {
             return false
         }
         val inputIndex=nodes.indexOf(input)
-        if(below(inputIndex,index) || below(index,inputIndex)) return reject(LauncherIssue.RELATED_TARGETS)
-        return nodes.mapIndexed { i,n -> if(i==index) Node("") else n }
+        if(marked.any { below(inputIndex,it) || below(it,inputIndex) })
+            return reject(LauncherIssue.RELATED_TARGETS)
+        if(nodes.indices.any { it!=index && below(it,index) })
+            return reject(LauncherIssue.LAUNCHER_UNSAFE)
+        return nodes.mapIndexed { i,n -> if(i in marked) Node("") else n }
     }
     // DEGIRO also labels BNP knock-out rows "GOLD Unlimited Long/Short".
     // Require the issuer, direction and explicit SL/STR/R terms; "Unlimited"
