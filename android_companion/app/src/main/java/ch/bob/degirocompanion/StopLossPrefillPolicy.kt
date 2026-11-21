@@ -92,6 +92,11 @@ internal object StopLossPrefillPolicy {
 
     fun decide(stage: Stage, f: Frame, draft: StopLossPrefillDraft): Decision {
         fun block(code: String) = Decision(Kind.BLOCK, code = code)
+        // A real broker confirmation page is never part of prefill.
+        // This check applies before even a harmless dropdown click/write.
+        if(f.nodes.any { norm(it.label) in setOf("order bestätigen","confirm order",
+                    "orderzusammenfassung","orderübersicht","orderdetails") })
+            return block("ORDER_BESTAETIGUNG_GESCHUETZT")
         if(stage==Stage.OPEN_FORM) {
             if(!base(f,draft)) return block("PRODUKT_ISIN_NICHT_ERKANNT")
             if(has(f,"Order platzieren")) {
