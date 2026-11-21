@@ -30,6 +30,9 @@ class StopLossPrefillPolicyTest {
         val text="BOB-STOP/1|DE000FB0A490|EUR|3|26.90|$now"
         assertEquals(2690L,StopLossDraftCodec.parse(text,now)?.stopCents)
         assertNull(StopLossDraftCodec.parse(text.replace("EUR","CHF"),now))
+        // User's retained safeguard 17 also applies BEFORE any form is opened:
+        // a syntactically plausible but check-digit-invalid ISIN is rejected.
+        assertNull(StopLossDraftCodec.parse(text.replace("DE000FB0A490","DE000FB0A491"),now))
         assertNull(StopLossDraftCodec.parse(text,now+300_001))
         assertNull(StopLossDraftCodec.parse(text.replace("|3|","|-3|"),now))
         assertNull(StopLossDraftCodec.parse(text.replace("26.90","26.999"),now))
