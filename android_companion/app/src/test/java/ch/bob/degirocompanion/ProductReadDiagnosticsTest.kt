@@ -43,6 +43,23 @@ class ProductReadDiagnosticsTest {
         assertFalse(report.contains("private-value"))
     }
 
+    @Test fun inputCountFailureReportsNoneVersusMultipleWithoutFieldValues() {
+        ProductReadDiagnostics.reset(300)
+        ProductReadDiagnostics.launcher(
+            MorningReadPolicy.LauncherIssue.INPUT_COUNT,emptyList())
+        val none=ProductReadDiagnostics.report(301)
+        assertTrue(none.contains("SEARCH_GUARD_INPUT_COUNT: 1"))
+        assertTrue(none.contains("SEARCH_INPUT_NO_EDITABLE: 1"))
+        ProductReadDiagnostics.launcher(MorningReadPolicy.LauncherIssue.INPUT_COUNT,
+            listOf(MorningReadPolicy.Node("Gold",editable=true),
+                MorningReadPolicy.Node("private second field",editable=true)))
+        val multiple=ProductReadDiagnostics.report(302)
+        assertTrue(multiple.contains("SEARCH_GUARD_INPUT_COUNT: 2"))
+        assertTrue(multiple.contains("SEARCH_INPUT_MULTIPLE_EDITABLE: 1"))
+        assertFalse(multiple.contains("private second field"))
+        assertFalse(multiple.contains("Gold"))
+    }
+
     @Test fun inlineQuoteNodesIdentifyProductScrollSurfaceWithoutUsingChartOrAccount() {
         for (row in listOf("Geld € 11,40", "Brief CHF 11,41", "Geld € 11,40 Brief € 11,41",
                 "Zuletzt € 11,40 27/10/2026 17:32", "Kursdaten\nGeld € 11,40")) {
