@@ -268,7 +268,9 @@ def _arm():
 
 def seed(now):
     return dict(version=VERSION,startedAt=now,checkedAt=None,arms={
-        key:_arm() for key in ARM_CONFIG},lastInput=None,realOrders=False)
+        key:{**_arm(),**({"studyStartedAt":now}
+                          if cfg.get("studySide") in ("LONG","SHORT") else {})}
+        for key,cfg in ARM_CONFIG.items()},lastInput=None,realOrders=False)
 
 
 def _close_position(arm,cfg,p,now,observed,why):
