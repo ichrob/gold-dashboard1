@@ -18,7 +18,8 @@ internal object DegiroStopLossReadOnly {
 
     enum class Code {
         NOT_DEGIRO, PROTECTED, INCOMPLETE, MULTIPLE_ISINS,
-        NO_PRODUCT, PRODUCT_DETAIL, SELL_FORM, SELL_FORM_UNCLEAR, BUY_OR_UNKNOWN_SIDE
+        NO_PRODUCT, PRODUCT_DETAIL, SELL_FORM, SELL_FORM_UNCLEAR, BUY_OR_UNKNOWN_SIDE,
+        ORDER_CONFIRMATION_VISIBLE, ORDER_FIELDS_VISIBLE_READ_ONLY
     }
     data class Result(val code:Code) {
         val message:String get()=when(code) {
@@ -31,10 +32,13 @@ internal object DegiroStopLossReadOnly {
             Code.SELL_FORM -> "DEGIRO-Verkaufsmaske und Feldbezeichnungen erkannt. Keine Eingaben."
             Code.SELL_FORM_UNCLEAR -> "Verkaufsmaske erkannt, aber Stop-/Anzahlfelder nicht eindeutig."
             Code.BUY_OR_UNKNOWN_SIDE -> "Kaufmaske oder Verkaufsrichtung unklar. Nichts ausgefuehrt."
+            Code.ORDER_CONFIRMATION_VISIBLE -> "Orderbestaetigung sichtbar. Nur Anzeige erkannt; keine Betaetigung oder Datenuebernahme."
+            Code.ORDER_FIELDS_VISIBLE_READ_ONLY -> "Orderart-, Preis- und Mengenbeschriftungen erkannt. Nur passiver Status, keine Eingabe."
         }
         val terminal:Boolean get() = code in setOf(
             Code.PROTECTED, Code.MULTIPLE_ISINS, Code.PRODUCT_DETAIL,
-            Code.SELL_FORM, Code.SELL_FORM_UNCLEAR, Code.BUY_OR_UNKNOWN_SIDE
+            Code.SELL_FORM, Code.SELL_FORM_UNCLEAR, Code.BUY_OR_UNKNOWN_SIDE,
+            Code.ORDER_CONFIRMATION_VISIBLE, Code.ORDER_FIELDS_VISIBLE_READ_ONLY
         )
     }
 
@@ -54,13 +58,26 @@ internal object DegiroStopLossReadOnly {
         }.distinct().size
         if(count>1)return Result(Code.MULTIPLE_ISINS)
         if(count==0)return Result(Code.NO_PRODUCT)
+        // A real confirmation surface is classifiable as a privacy-safe code,
+        // but NEVER delegated to the product reader or an action executor.
+        if(has(frame,"Order bestätigen") || has(frame,"Confirm order"))
+            return Result(Code.ORDER_CONFIRMATION_VISIBLE)
         if(!has(frame,"Order platzieren"))return Result(
             if(has(frame,"Uebersicht") || has(frame,"Übersicht")) {
                 if(has(frame,"KAUF")&&has(frame,"VERKAUF"))Code.PRODUCT_DETAIL else Code.NO_PRODUCT
             } else Code.NO_PRODUCT)
         val selectedSell=frame.nodes.count { norm(it.label)=="verkauf"&&it.selected }==1
         val selectedBuy=frame.nodes.any{norm(it.label)=="kauf"&&it.selected}
-        if(!selectedSell || selectedBuy)return Result(Code.BUY_OR_UNKNOWN_SIDE)
+        if(selectedBuy)return Result(Code.BUY_OR_UNKNOWN_SIDE)
+        if(!selectedSell) {
+            // Allow passive recognition of exact, NON-editable labels on an
+            // uncertain order form; no value read, click, or broker action.
+            val labels=frame.nodes.filterNot { it.editable }.map { norm(it.label) }.toSet()
+            return Result(if("ordertyp" in labels &&
+                labels.any { it in setOf("limitpreis","limit price") } &&
+                labels.any { it in setOf("anzahl","stückzahl","stueckzahl","quantity") })
+                Code.ORDER_FIELDS_VISIBLE_READ_ONLY else Code.BUY_OR_UNKNOWN_SIDE)
+        }
         if(!has(frame,"Ordertyp"))return Result(Code.SELL_FORM_UNCLEAR)
         val stopLabels=frame.nodes.count {
             !it.editable && norm(it.label) in
