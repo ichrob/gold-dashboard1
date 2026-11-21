@@ -21,6 +21,26 @@ internal object MorningReadPolicy {
         "PROTECTED_ORDER_PRICE" to Regex("(?iu)limitpreis"),
         "PROTECTED_ORDER_QUANTITY" to Regex("(?iu)stückzahl|anzahl kaufen"))
     private fun normalized(value: String) = value.replace(Regex("[\\s\\p{Zs}]+"), " ").trim()
+    /** A read-only Gold page retains the ordinary DEGIRO bottom tab labelled
+     * exactly Portfolio. navigationTree aggregates this leaf into ancestor
+     * row strings with newlines. Skip ONLY the exact single navigation line;
+     * other portfolio/account labels, order fields and secrets remain unsafe.
+     * Used only after independently checking the original Gold list/search. */
+    private fun hasActualOrderOrPrivateMarker(value:String, markers:Regex):Boolean =
+        value.lines().any { line ->
+            val label=normalized(line)
+            label.isNotEmpty() && !label.equals("Portfolio",true) &&
+                markers.containsMatchIn(label)
+        }
+    /** Single shared account/order-content contract for BOTH protected Gold
+     * reader paths. Excludes only the harmless global order-launcher label,
+     * not account summaries, order forms, quantity or credential fields. */
+    private val goldResearchProtectedForm=Regex(
+        "(?iu)order bestätigen|confirm order|orderart|ordertyp|" +
+            "limitpreis|stückzahl|anzahl kaufen|orderdetails|orderübersicht|" +
+            "orderzusammenfassung|passwort|password|login|anmelden|" +
+            "kontostand|portfolio|depotwert"
+    )
     private fun searchLabel(value: String) = Regex("(?iu)^(suche|suchen|search|produkt suchen|produkte suchen|search products|search instruments|instrument suchen|instrumente suchen|suchen nach|name, isin oder symbol|name, isin or symbol|mit namen, isin oder symbol suchen)(?:[.…: ]*)$").matches(normalized(value))
     private fun canClick(n: Node) = n.enabled && (n.clickable || n.clickAction)
     private fun rowSearch(n: Node) = searchLabel(n.row.lines().map { it.trim() }.filter(String::isNotBlank).distinct().joinToString(" "))
@@ -769,13 +789,10 @@ internal object MorningReadPolicy {
         if(!SeriesEvidence.validIsin(target) || nodes.isEmpty() ||
             nodes.size>500 || genericTurboDirectory(nodes) ||
             protection(nodes)!="PROTECTED_ORDER_CONFIRM") return null
-        val unsafe=Regex("(?iu)order bestätigen|confirm order|orderart|" +
-            "ordertyp|limitpreis|stückzahl|anzahl kaufen|orderdetails|" +
-            "orderübersicht|orderzusammenfassung|passwort|password|" +
-            "login|anmelden|kontostand|portfolio|depotwert")
+        val unsafe=goldResearchProtectedForm
         if(nodes.any { n -> n.password || n.sensitive ||
             listOf(n.text,n.description,n.hint,n.row)
-                .any(unsafe::containsMatchIn) }) return null
+                .any { hasActualOrderOrPrivateMarker(it,unsafe) } }) return null
         fun label(value:String,exact:String)=normalized(value).equals(exact,true)
         // Permit at most one actionable global launcher. Passive copies must
         // contain only that exact label; a second button or mixed order form
@@ -884,6 +901,15 @@ internal object MorningReadPolicy {
     fun localResearchDecision(nodes: List<Node>, target: String,
                               keyboardReady: Boolean = true,
                               resultOpened: Boolean = true): Action {
+        // The older generic productSearchWithoutLauncher() may find a valid
+        // search control even when an account/order summary is elsewhere in
+        // the same WebView. Refuse such surfaces BEFORE any ordinary
+        // search fast-path. Exact lone bottom-nav "Portfolio" is inert text.
+        if(nodes.any { n ->
+                n.password || n.sensitive ||
+                    listOf(n.text,n.description,n.hint,n.row)
+                        .any { hasActualOrderOrPrivateMarker(it,goldResearchProtectedForm) }
+            })return Action(Kind.BLOCK,code="PROTECTED_PRIVATE_OR_ORDER")
         val ordinary=detailDecision(nodes,target,false,keyboardReady,resultOpened)
         if(ordinary.kind==Kind.BLOCK && ordinary.code=="PROTECTED_ORDER_CONFIRM") {
             // Only an original, owner-started quarantined Gold research run
@@ -1033,12 +1059,10 @@ internal object MorningReadPolicy {
             if(actionable.size!=1)return null
             // Genuine order forms cannot be reclassified because they also
             // happen to contain a harmless global launcher elsewhere.
-            val form=Regex("(?iu)order bestätigen|confirm order|orderart|ordertyp|" +
-                "limitpreis|stückzahl|anzahl kaufen|orderdetails|" +
-                "passwort|password|login|anmelden|portfolio|depotwert")
+            val form=goldResearchProtectedForm
             if(nodes.any { n ->
                 listOf(n.text,n.description,n.hint,n.row)
-                    .any(form::containsMatchIn)
+                    .any { hasActualOrderOrPrivateMarker(it,form) }
             })return null
             fun descends(child:Int,ancestor:Int):Boolean {
                 var p=nodes[child].parent;var steps=0

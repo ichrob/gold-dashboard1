@@ -1031,6 +1031,17 @@ class MorningReadPolicyTest {
         val passive=launcher.copy(clickable=false)
         assertEquals(1,MorningReadPolicy.quarantinedGoldReturnScrollTarget(
             base+launcher+passive,setOf(1),local))
+        val normalNav=base+launcher+passive+
+            MorningReadPolicy.Node("Portfolio")+
+            MorningReadPolicy.Node("",row="Märkte\nFavoriten\nPortfolio\nInbox")
+        assertEquals(1,MorningReadPolicy.quarantinedGoldReturnScrollTarget(
+            normalNav,setOf(1),local))
+        for(privateExtra in listOf("Mein Portfolio","Portfolio 123 CHF",
+                "Depotwert","Kontostand","Order bestätigen")) {
+            assertNull("Forbidden: $privateExtra",
+                MorningReadPolicy.quarantinedGoldReturnScrollTarget(
+                    normalNav+MorningReadPolicy.Node(privateExtra),setOf(1),local))
+        }
         val unsafe=listOf(
             base+launcher+launcher,
             base+launcher.copy(text="Order bestätigen"),
@@ -1116,6 +1127,18 @@ class MorningReadPolicyTest {
         val launcher=MorningReadPolicy.Node("Order platzieren",clickable=true)
         val duplicate=MorningReadPolicy.Node("Order platzieren",clickable=false)
         val page=listOf(field)+preview+launcher+duplicate
+        val withNav=page+MorningReadPolicy.Node("Portfolio")+
+            MorningReadPolicy.Node("",row="Märkte\nFavoriten\nPortfolio\nInbox")
+        assertEquals(MorningReadPolicy.Kind.FOCUS,
+            MorningReadPolicy.localResearchDecision(withNav,target,
+                keyboardReady=false,resultOpened=false).kind)
+        for(privateExtra in listOf("Mein Portfolio","Portfolio 123 CHF",
+                "Depotwert","Kontostand","Order bestätigen")) {
+            assertEquals("Forbidden: $privateExtra",MorningReadPolicy.Kind.BLOCK,
+                MorningReadPolicy.localResearchDecision(
+                    withNav+MorningReadPolicy.Node(privateExtra),
+                    target,keyboardReady=false,resultOpened=false).kind)
+        }
         val focus=MorningReadPolicy.localResearchDecision(page,target,
             keyboardReady=false,resultOpened=false)
         assertEquals(MorningReadPolicy.Kind.FOCUS,focus.kind)

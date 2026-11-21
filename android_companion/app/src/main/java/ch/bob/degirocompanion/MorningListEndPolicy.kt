@@ -148,6 +148,23 @@ internal object MorningListEndPolicy {
             "kontostand|portfolio|depotwert"
     )
 
+    /** DEGIRO has a persistent bottom navigation tab labelled exactly
+     * "Portfolio" even on the Gold search/results page. navigationTree()
+     * copies that same leaf label into ancestor `row` strings separated
+     * by newlines. A substring scan therefore falsely classifies every
+     * normal Gold footer as private account content. Exempt ONLY that exact,
+     * stand-alone navigation label while scanning node text/description/
+     * hint/aggregated rows. "Mein Portfolio", balances and any other
+     * account, order, secret or form marker still block the screenshot.
+     * This never grants a click, order or access to a portfolio page. */
+    private fun containsRealPrivateOrOrderMarker(value:String):Boolean =
+        value.lines().any { line ->
+            val label=line.trim()
+            label.isNotEmpty() &&
+                !label.equals("Portfolio",ignoreCase=true) &&
+                actualOrderForm.containsMatchIn(label)
+        }
+
     /** Android sometimes keeps the ORIGINAL Gold search EditText in a
      * WebView ancestry beside the read-only verified footer. That field is
      * neither an order field nor a reason to suppress a PHOTO. Only this one
@@ -156,7 +173,7 @@ internal object MorningListEndPolicy {
     private fun fourthPhotoSurfaceGate(nodes: List<MorningReadPolicy.Node>): FourthPhotoGate {
         if(nodes.any { n ->
                 n.password || n.sensitive ||
-                    listOf(n.text,n.description,n.hint,n.row).any(actualOrderForm::containsMatchIn)
+                    listOf(n.text,n.description,n.hint,n.row).any(::containsRealPrivateOrOrderMarker)
             }) return FourthPhotoGate.ORDER_OR_PRIVATE_SURFACE
         val inputs=nodes.indices.filter { nodes[it].editable }
         if(inputs.size>1)return FourthPhotoGate.UNKNOWN_INPUT

@@ -292,6 +292,52 @@ class MorningListEndPolicyTest {
             safe,3,ten,ten,action().isins,action()))
     }
 
+    @Test fun persistentPortfolioTabIsNotPrivateAccountViewAtGoldFooter() {
+        val ten=(ids+listOf("DE000SQ02JQ6","DE000FG8K0P8",
+            "DE000FG77MY4","DE000FG8NHQ3")).toSet()
+        val incomplete=ten-"DE000FG8NHQ3"
+        val base=page()+MorningReadPolicy.Node("Order platzieren",clickable=true)
+        // navigationTree() puts the real bottom-tab text into both the leaf
+        // and each ancestor's aggregated newline-separated row.
+        val normal=base+MorningReadPolicy.Node("Portfolio")+
+            MorningReadPolicy.Node("Gold results wrapper",
+                row="Märkte\nFavoriten\nPortfolio\nInbox\nTop Ergebnisse")
+        val outcome=MorningListEndPolicy.uncoveredFooterGate(
+            normal,3,ten,incomplete,action().isins,action())
+        assertEquals(MorningListEndPolicy.FourthPhotoGate.ALLOWED,outcome)
+        assertTrue(MorningListEndPolicy.needsUncoveredFooterCapture(
+            normal,3,ten,incomplete,action().isins,action()))
+        // Composite ancestors may repeat the benign navigation label.
+        // Their remaining lines must STILL be scanned for real order fields.
+        assertEquals(MorningListEndPolicy.FourthPhotoGate.ORDER_OR_PRIVATE_SURFACE,
+            MorningListEndPolicy.uncoveredFooterGate(
+                normal+MorningReadPolicy.Node("Gold root",
+                    row="Portfolio\nOrderart\nGold"),
+                3,ten,incomplete,action().isins,action()))
+        for(privateView in listOf(
+            MorningReadPolicy.Node("Mein Portfolio"),
+            MorningReadPolicy.Node("Portfolio 12.345 CHF"),
+            MorningReadPolicy.Node("Depotwert"),
+            MorningReadPolicy.Node("Kontostand"),
+            MorningReadPolicy.Node("Order bestätigen"),
+            MorningReadPolicy.Node("Limitpreis"),
+            MorningReadPolicy.Node("Passwort"),
+            MorningReadPolicy.Node("Portfolio",sensitive=true),
+            MorningReadPolicy.Node("",editable=true,hint="Stückzahl"))) {
+            assertEquals("Unsafe: $privateView",
+                MorningListEndPolicy.FourthPhotoGate.ORDER_OR_PRIVATE_SURFACE,
+                MorningListEndPolicy.uncoveredFooterGate(
+                    normal+privateView,3,ten,incomplete,action().isins,action()))
+        }
+        assertFalse(MorningListEndPolicy.needsUncoveredFooterCapture(
+            normal,4,ten,incomplete,action().isins,action()))
+        assertFalse(MorningListEndPolicy.needsUncoveredFooterCapture(
+            normal,3,ten,ten,action().isins,action()))
+        assertFalse(MorningListEndPolicy.needsUncoveredFooterCapture(
+            normal,3,ten,incomplete,action().isins,
+            MorningReadPolicy.Action(MorningReadPolicy.Kind.SEARCH)))
+    }
+
     @Test fun fourImagesMayBeSubmittedButNeverCountAsLocalCompletion() {
         assertTrue(MorningListEndPolicy.maySubmitAtCaptureLimit(4,ids.toSet()))
         assertFalse(MorningListEndPolicy.maySubmitAtCaptureLimit(3,ids.toSet()))
