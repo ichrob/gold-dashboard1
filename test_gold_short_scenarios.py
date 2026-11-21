@@ -159,7 +159,7 @@ class ShortGoldScenarioTests(unittest.TestCase):
         brief=__import__("bob_diagnostics").short_regime_brief(report)
         names=[v["name"] for v in brief["variants"]]
         self.assertIn("trend-reentry:closed5m-independent",names)
-        self.assertEqual(brief["configurationsReported"],66)
+        self.assertEqual(brief["configurationsReported"],72)
 
     def test_target_room_is_not_replaced_by_an_idealized_rr(self):
         p=source()
