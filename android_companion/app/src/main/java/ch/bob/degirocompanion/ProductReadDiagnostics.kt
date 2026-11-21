@@ -54,7 +54,11 @@ internal object ProductReadDiagnostics {
     fun launcher(issue: MorningReadPolicy.LauncherIssue, nodes: List<MorningReadPolicy.Node> = emptyList()) {
         if(issue != MorningReadPolicy.LauncherIssue.NONE)
             launcherIssues[issue] = ((launcherIssues[issue] ?: 0) + 1).coerceAtMost(999)
-        if(issue == MorningReadPolicy.LauncherIssue.INPUT_LABEL) {
+        // INPUT_COUNT used to report only an opaque cause; distinguish a
+        // missing search field from two WebView editable representations in
+        // the NEXT owner-started diagnostic without exposing any field value.
+        if(issue == MorningReadPolicy.LauncherIssue.INPUT_LABEL ||
+            issue == MorningReadPolicy.LauncherIssue.INPUT_COUNT) {
             val evidence=classifySearchInput(nodes)
             searchInputEvidence[evidence] = ((searchInputEvidence[evidence] ?: 0) + 1).coerceAtMost(999)
         }
