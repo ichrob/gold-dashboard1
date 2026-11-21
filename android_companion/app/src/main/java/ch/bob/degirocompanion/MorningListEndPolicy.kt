@@ -131,44 +131,83 @@ internal object MorningListEndPolicy {
         !nodes.any { it.password || it.sensitive || it.editable } &&
         safeFooterProtection(nodes)
 
-    /** Existing needsEdgeCapture authorizes one final cropped photo when all
-     * ten identities were seen but at least one complete product row was NOT
-     * independently covered. Do not submit just because ten labels exist.
-     * No tapping, scrolling or permission to approve ten original rows. */
-    /** Only for the FOURTH CROPPED read-only Gold photo when all ten
-     * checksum-valid identities were already observed, but complete optical
-     * row coverage is still missing. A generic global Order button (even
-     * duplicated or nested as WebView text) is NOT an order form. This grants
-     * no navigation, order click, field editing, list approval or trading.
-     * A true order form, login, other editable input or private UI blocks. */
-    private fun safeGoldPhotoDespiteOrderLauncher(nodes: List<MorningReadPolicy.Node>): Boolean {
-        val actualOrderForm=Regex(
-            "(?iu)order bestätigen|confirm order|orderart|ordertyp|limitpreis|" +
-                "stückzahl|anzahl kaufen|orderdetails|orderübersicht|" +
-                "orderzusammenfassung|passwort|password|login|anmelden|" +
-                "kontostand|portfolio|depotwert"
-        )
+    /** A fourth CROPPED Gold-list photograph is evidence collection only.
+     * The server still independently requires all ten complete product rows.
+     * Report the exact anonymous reason a known ten-label case could not
+     * obtain its fourth original photo instead of a generic guard failure. */
+    enum class FourthPhotoGate {
+        ALLOWED, CAPTURE_LIMIT, NO_MISSING_ROW_EVIDENCE, INVALID_VISIBLE_IDS,
+        ACTION_NOT_COLLECT, FOOTER_UNVERIFIED, ORDER_OR_PRIVATE_SURFACE,
+        UNKNOWN_INPUT
+    }
+
+    private val actualOrderForm = Regex(
+        "(?iu)order bestätigen|confirm order|orderart|ordertyp|limitpreis|" +
+            "stückzahl|anzahl kaufen|orderdetails|orderübersicht|" +
+            "orderzusammenfassung|passwort|password|login|anmelden|" +
+            "kontostand|portfolio|depotwert"
+    )
+
+    /** Android sometimes keeps the ORIGINAL Gold search EditText in a
+     * WebView ancestry beside the read-only verified footer. That field is
+     * neither an order field nor a reason to suppress a PHOTO. Only this one
+     * labelled, non-secret, Gold-valued input and its containsInput ancestors
+     * are tolerated. Nothing here returns an input/click target. */
+    private fun fourthPhotoSurfaceGate(nodes: List<MorningReadPolicy.Node>): FourthPhotoGate {
         if(nodes.any { n ->
-                n.editable || n.containsInput || n.password || n.sensitive ||
-                listOf(n.text,n.description,n.hint,n.row)
-                    .any(actualOrderForm::containsMatchIn)
-            }) return false
-        // Mixed order-confirmation phrases are rejected above. A read-only
-        // global "Order platzieren" launcher is not used as a target here.
-        return true
+                n.password || n.sensitive ||
+                    listOf(n.text,n.description,n.hint,n.row).any(actualOrderForm::containsMatchIn)
+            }) return FourthPhotoGate.ORDER_OR_PRIVATE_SURFACE
+        val inputs=nodes.indices.filter { nodes[it].editable }
+        if(inputs.size>1)return FourthPhotoGate.UNKNOWN_INPUT
+        val search=inputs.singleOrNull()
+        if(search!=null) {
+            val n=nodes[search]
+            val metadata=(n.id+" "+n.hint+" "+n.description).lowercase()
+            val namedSearch=Regex("(?i)(^|[^a-z])search([^a-z]|$)|mit namen, isin oder symbol suchen")
+                .containsMatchIn(metadata)
+            if(!n.enabled || !namedSearch || n.text.trim() !in setOf("Gold",""))
+                return FourthPhotoGate.UNKNOWN_INPUT
+        }
+        fun descends(child:Int,parent:Int):Boolean {
+            var at=nodes[child].parent
+            var hops=0
+            while(at in nodes.indices && hops++ < nodes.size) {
+                if(at==parent)return true
+                at=nodes[at].parent
+            }
+            return false
+        }
+        // Any other input surface remains forbidden, including a virtualized
+        // unlabelled input with no real Search EditText.
+        if(nodes.indices.any { i ->
+                nodes[i].containsInput && i!=search &&
+                    (search==null || !descends(search,i))
+            })return FourthPhotoGate.UNKNOWN_INPUT
+        return FourthPhotoGate.ALLOWED
+    }
+
+    fun uncoveredFooterGate(nodes: List<MorningReadPolicy.Node>,
+                            capturedImages: Int, seen: Set<String>,
+                            covered: Set<String>, current: List<String>,
+                            action: MorningReadPolicy.Action): FourthPhotoGate {
+        if(capturedImages!=3)return FourthPhotoGate.CAPTURE_LIMIT
+        if(!needsEdgeCapture(capturedImages,seen,covered))
+            return FourthPhotoGate.NO_MISSING_ROW_EVIDENCE
+        if(current.isEmpty() || current.size>10 || current.distinct()!=current ||
+            current.any { !SeriesEvidence.validIsin(it) || it !in seen })
+            return FourthPhotoGate.INVALID_VISIBLE_IDS
+        if(action.kind!=MorningReadPolicy.Kind.COLLECT || action.isins!=current)
+            return FourthPhotoGate.ACTION_NOT_COLLECT
+        if(!hasVerifiedFooter(nodes))return FourthPhotoGate.FOOTER_UNVERIFIED
+        return fourthPhotoSurfaceGate(nodes)
     }
 
     fun needsUncoveredFooterCapture(nodes: List<MorningReadPolicy.Node>,
                                     capturedImages: Int, seen: Set<String>,
                                     covered: Set<String>, current: List<String>,
                                     action: MorningReadPolicy.Action): Boolean =
-        capturedImages == 3 && needsEdgeCapture(capturedImages,seen,covered) &&
-        current.isNotEmpty() && current.size <= 10 &&
-        current.distinct() == current &&
-        current.all { SeriesEvidence.validIsin(it) && it in seen } &&
-        action.kind == MorningReadPolicy.Kind.COLLECT &&
-        action.isins == current && hasVerifiedFooter(nodes) &&
-        safeGoldPhotoDespiteOrderLauncher(nodes)
+        uncoveredFooterGate(nodes,capturedImages,seen,covered,current,action)==FourthPhotoGate.ALLOWED
 
     fun maySubmitAtCaptureLimit(capturedImages: Int, seen: Set<String>): Boolean =
         capturedImages == 4 && seen.size in 5..9 && seen.all(SeriesEvidence::validIsin)
