@@ -1,4 +1,4 @@
-"""New prospective SHORT-HOLD Gold research: regimes and evidence-only model fills.
+"""Prospective LONG/SHORT Gold short-hold research using evidence-only model fills.
 
 Separate 1,000 EUR virtual reference accounts; not broker orders or a change to
 Bob's 15 existing paper ledgers. All entry signals use already CLOSED original
