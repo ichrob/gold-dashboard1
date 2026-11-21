@@ -654,7 +654,9 @@ class ProductReadService : AccessibilityService() {
                 StopLossPrefillSession.finish("SCREEN_LOCKED"); return
             }
             if(PhoneRemote.active() || PinReadinessProbe.running || MorningReadRun.running ||
-                GoldSearchRun.running || ProductReadRequest.active(now)) {
+                GoldSearchRun.running || ProductReadRequest.active(now) ||
+                MorningListDelivery.waiting || BobTradeDimMode.running ||
+                DegiroReadOnlySession.active(now)) {
                 StopLossPrefillSession.finish("PARALLELER_AUFTRAG"); return
             }
             val root=rootInActiveWindow ?: run {
