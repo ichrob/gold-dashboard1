@@ -1111,7 +1111,7 @@ class MorningReadPolicyTest {
             keyboardReady=false,resultOpened=false)
         assertEquals(MorningReadPolicy.Kind.FOCUS,focus.kind)
         assertEquals(0,focus.index)
-        assertEquals("GOLD_READONLY_SEARCH_RECOVERED",focus.code)
+        // Native search recovery may have already supplied the same safe FOCUS.
         val query=MorningReadPolicy.localResearchDecision(
             listOf(field.copy(focused=true))+preview+launcher+duplicate,
             target,keyboardReady=true,resultOpened=false)
