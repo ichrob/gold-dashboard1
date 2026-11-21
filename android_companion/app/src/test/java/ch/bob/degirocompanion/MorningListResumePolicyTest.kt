@@ -15,6 +15,25 @@ class MorningListResumePolicyTest {
                     policy.mode(age,resumes,verificationFailed=true))
     }
 
+    @Test fun missingSavedReceiptCannotHoldFreshOwnerStartIndefinitely() {
+        assertFalse(policy.receiptUnavailableForFreshCapture(2,true,false,null))
+        assertTrue(policy.receiptUnavailableForFreshCapture(3,true,false,null))
+        assertTrue(policy.receiptUnavailableForFreshCapture(3,true,true,""))
+        assertTrue(policy.receiptUnavailableForFreshCapture(3,true,true,"missing"))
+        assertTrue(policy.receiptUnavailableForFreshCapture(4,true,true,"not-found"))
+        assertFalse(policy.receiptUnavailableForFreshCapture(100,false,false,null))
+        for(stage in listOf("reading","waiting-memory","read-failed",
+            "synced","superseded"))
+            assertFalse(policy.receiptUnavailableForFreshCapture(100,true,true,stage))
+        assertEquals(MorningListResumePolicy.Mode.NEW_LIST,
+            policy.mode(15*minute,1,receiptUnconfirmed=true))
+        assertEquals(MorningListResumePolicy.Mode.NEW_LIST,
+            policy.mode(120*minute,0,receiptUnconfirmed=true))
+        // Valid previous receipts are never treated as missing, regardless
+        // of how many HTTP status checks have elapsed.
+        assertFalse(policy.receiptUnavailableForFreshCapture(100,true,true,"reading"))
+    }
+
     @Test fun unknownTransportAndMemoryStatesAreNotRejectedLists() {
         for(stage in listOf(null,"reading","waiting-memory","synced","superseded"))
             assertFalse(policy.verificationFailed(stage,"ListVerificationError"))

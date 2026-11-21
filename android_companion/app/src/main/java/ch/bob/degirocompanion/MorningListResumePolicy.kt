@@ -18,8 +18,18 @@ internal object MorningListResumePolicy {
                                    enhancedVerification: Boolean): Boolean =
         verificationFailed(stage,error) && enhancedVerification
 
-    fun mode(ageMillis: Long, resumeCount: Int, verificationFailed: Boolean = false): Mode {
-        if (verificationFailed) return Mode.NEW_LIST
+    /** An old receipt has no verifiable server response after bounded read-only
+     * checks. Preserve its images, but do not monopolize a new explicit Gold run.
+     * This is NOT a server verdict about list completeness. */
+    fun receiptUnavailableForFreshCapture(attempt: Int, receiptOnly: Boolean,
+                                          matchingBatch: Boolean, stage: String?): Boolean =
+        receiptOnly && attempt >= 3 &&
+            (!matchingBatch || stage.isNullOrBlank() ||
+                stage in setOf("missing","not-found","unknown"))
+
+    fun mode(ageMillis: Long, resumeCount: Int, verificationFailed: Boolean = false,
+             receiptUnconfirmed: Boolean = false): Mode {
+        if (verificationFailed || receiptUnconfirmed) return Mode.NEW_LIST
         if (ageMillis !in 0..DAY_MS || resumeCount !in 0..3)
             return Mode.NEW_LIST
         if (ageMillis<=FRESH_MS && resumeCount<2)
