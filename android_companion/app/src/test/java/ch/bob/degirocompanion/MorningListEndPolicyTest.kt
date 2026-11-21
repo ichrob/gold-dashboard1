@@ -301,7 +301,7 @@ class MorningListEndPolicyTest {
         // and each ancestor's aggregated newline-separated row.
         val normal=base+MorningReadPolicy.Node("Portfolio")+
             MorningReadPolicy.Node("Gold results wrapper",
-                row="Märkte\\nFavoriten\\nPortfolio\\nInbox\\nTop Ergebnisse")
+                row="Märkte\nFavoriten\nPortfolio\nInbox\nTop Ergebnisse")
         val outcome=MorningListEndPolicy.uncoveredFooterGate(
             normal,3,ten,incomplete,action().isins,action())
         assertEquals(MorningListEndPolicy.FourthPhotoGate.ALLOWED,outcome)
