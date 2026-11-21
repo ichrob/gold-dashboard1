@@ -1,5 +1,6 @@
 """Durable, bounded local OCR of paired handset lists; no browser or paid API."""
 import base64
+import functools
 import io
 import json
 import os
@@ -26,6 +27,8 @@ def status():
     value["fresh"]=value["checkedAt"] is not None and time.time()-value["checkedAt"]<180
     value['ocrMemoryLimitMiB']=OCR_CONTAINER_LIMIT//(1024*1024)
     value['ocrStartReserveMiB']=OCR_START_RESERVE//(1024*1024)
+    value['ocrRecoveryStartReserveMiB']=OCR_RECOVERY_START_RESERVE//(1024*1024)
+    value['ocrRecoveryAfterDeferrals']=OCR_RECOVERY_AFTER_DEFERRALS
     value['workloadPriority']=ocr_workload_priority.status()
     return value
 
@@ -144,6 +147,15 @@ def content_bounds(image):
 # runtime kill threshold. The child still fails closed on a memory spike.
 OCR_CONTAINER_LIMIT = 505 * 1024 * 1024
 OCR_START_RESERVE = 196 * 1024 * 1024
+# After repeated admission failures, permit a conservative one-batch recovery
+# with 180 MiB reserved, still above the historically observed native OCR
+# incremental peak of about 151 MiB (306 -> 457 MiB on 18 Nov).
+# At maximum admitted occupancy (324 MiB), this keeps approximately 29 MiB
+# below the independent 505-MiB runtime child-kill threshold. Never modify
+# that absolute limit, concurrency, model quality or ten-row acceptance.
+# This cannot guarantee admission if current occupancy stays at 325+ MiB.
+OCR_RECOVERY_START_RESERVE = 180 * 1024 * 1024
+OCR_RECOVERY_AFTER_DEFERRALS = 2
 # Twenty-four bounded four-minute memory admission checks (~96 minutes).
 # Preserve the existing 505-MiB kill threshold and 196-MiB start reserve.
 # Waiting is not an OCR attempt. Already uploaded originals remain available.
@@ -223,7 +235,7 @@ def report_ocr_memory(measurement, outcome, started):
     except Exception:
         pass  # Diagnostics must not change OCR results or protection.
 
-def guarded_ocr_run(args, *, input, text, capture_output, timeout, check, env, close_fds):
+def guarded_ocr_run(args, *, input, text, capture_output, timeout, check, env, close_fds, memory_recovery=False):
     # Preserve the cgroup-wide fail-closed guard and file-backed streams.
     # Return free parent heap pages before loading the child's native models.
     # No cache or evidence is deleted; the user-approved kill threshold is 505 MiB.
@@ -233,7 +245,14 @@ def guarded_ocr_run(args, *, input, text, capture_output, timeout, check, env, c
     used=container_memory_bytes()
     started=time.monotonic()
     measurement={'beforeBytes':used,'peakBytes':used,'samples':0}
-    if used is None or used+OCR_START_RESERVE>=OCR_CONTAINER_LIMIT:
+    # Normal runs keep the original 196-MiB reserve. Only a batch whose
+    # stored memory-deferral count reached two gets the measured, bounded
+    # 180-MiB recovery reserve. The cgroup-wide 505-MiB abort remains active.
+    reserve=OCR_RECOVERY_START_RESERVE if memory_recovery is True else OCR_START_RESERVE
+    with _state_lock:
+        _state['lastOcrAdmissionReserveMiB']=reserve//(1024*1024)
+        _state['lastOcrAdmissionRecovery']=memory_recovery is True
+    if used is None or used+reserve>=OCR_CONTAINER_LIMIT:
         report_ocr_memory(measurement,'deferred',started)
         raise OcrMemoryDeferred('OCR awaiting free container memory')
     with tempfile.TemporaryFile(mode='w+',encoding='utf-8') as source, \
@@ -309,6 +328,18 @@ def sanitize_native_passes(passes):
     return json.loads(result.stdout)
 
 
+def ocr_runner(payload):
+    """Retry native OCR only for server-owned batches deferred at least twice.
+
+    The untrusted handset upload is schema-validated without this private field.
+    The worker injects _memoryDeferrals from its persisted SQL receipt.
+    """
+    count=payload.get('_memoryDeferrals',0)
+    if type(count) is int and count>=OCR_RECOVERY_AFTER_DEFERRALS:
+        return functools.partial(guarded_ocr_run,memory_recovery=True)
+    return guarded_ocr_run
+
+
 def process(payload,at,*,progress=None,save_progress=None):
     # Acquire before evaluator admission: a draining maintenance task may itself
     # need the evaluator. Holding it while waiting here would deadlock.
@@ -320,6 +351,7 @@ def _process(payload,at,*,progress=None,save_progress=None):
     # An internal, bounded second pass only for a verification failure.
     # Original screenshot bytes are never changed or persisted in this mode.
     enhanced=payload.get('_ocr_mode')=='enhanced'
+    native_runner=ocr_runner(payload)
     env={k:v for k,v in os.environ.items() if k in ('PATH','LANG','LD_LIBRARY_PATH')}
     env.update(OMP_NUM_THREADS='1',OPENBLAS_NUM_THREADS='1',MKL_NUM_THREADS='1')
     import evaluator_runtime
@@ -378,7 +410,7 @@ def _process(payload,at,*,progress=None,save_progress=None):
             continue
         try:
             child=evaluator_runtime.run([sys.executable,__file__,'--ocr']+
-                (['--enhanced'] if enhanced else []),priority=2,runner=guarded_ocr_run,
+                (['--enhanced'] if enhanced else []),priority=2,runner=native_runner,
                 input=json.dumps([image]),text=True,capture_output=True,timeout=35,check=True,env=env,close_fds=True)
         except subprocess.CalledProcessError as exc:
             raise OcrChildError('Isolated image recognition failed') from exc
@@ -438,7 +470,7 @@ def _process(payload,at,*,progress=None,save_progress=None):
                 try:
                     child=evaluator_runtime.run([sys.executable,__file__,'--ocr']+
                         (['--enhanced'] if enhanced else []),
-                        priority=2,runner=guarded_ocr_run,input=json.dumps([item]),
+                        priority=2,runner=native_runner,input=json.dumps([item]),
                         text=True,capture_output=True,timeout=35,check=True,
                         env=env,close_fds=True)
                     if len(child.stdout)>100000:continue
@@ -652,6 +684,9 @@ def tick(connect,runner=process):
                 payload=android_image_readthrough.materialize(
                     evidence_conn,batch,payload)
         request=dict(payload)
+        # Private value from the durable server receipt, NEVER from the
+        # handset-uploaded list; admission recovery cannot change its evidence.
+        request['_memoryDeferrals']=memory_deferrals(previous)
         if alternate:request['_ocr_mode']='enhanced'
         if runner is process:
             parsed=runner(request,payload['images'][-1]['at'],progress=progress,
