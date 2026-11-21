@@ -668,10 +668,6 @@ internal object MorningReadPolicy {
         fun nestedInProduct(index:Int):Boolean {
             var p=nodes[index].parent;var steps=0
             while(p in nodes.indices && steps++<nodes.size) {
-                // Android's root WebView aggregates all product rows. That
-                // does not make a separate search box a product-card child.
-                // Ignore only the real page root when testing ancestry.
-                if(nodes[p].parent !in nodes.indices) break
                 val title=nodes[p].text
                 if(ids.containsMatchIn(title.uppercase()) ||
                     ids.containsMatchIn(nodes[p].row.uppercase()) ||
@@ -711,31 +707,8 @@ internal object MorningReadPolicy {
                 i!=launcher && canClick(n) &&
                     (search(n) || rowSearch(n))
             }) return null
-        // Samsung sometimes exposes the existing Gold search string as a
-        // noneditable node until a human taps it; screenshots show the
-        // keyboard opening when that exact top search field is selected.
-        // Only a user-started research run can reach this classification.
-        // Never type into a synthetic field or click product/order rows.
-        val leverageIndex=nodes.indexOfFirst { exact(it.text,"Hebelprodukte") }
-        val visibleGold=if(searchButtons.isEmpty() && topResults &&
-            nodes.any { exact(it.text,"Alle Ergebnisse in Hebelprodukte") } &&
-            leverageIndex>0) {
-            nodes.indices.filter { i ->
-                val n=nodes[i]
-                i<leverageIndex && n.parent in nodes.indices &&
-                n.enabled && !n.editable && !n.containsInput &&
-                !n.sensitive && !n.password &&
-                exact(n.text,"Gold") &&
-                n.row.lines().filter(String::isNotBlank)
-                    .all { exact(it,"Gold") } &&
-                !descendant(i,launcher) && !descendant(launcher,i) &&
-                !nestedInProduct(i)
-            }.singleOrNull()
-        } else null
         return if(searchButtons.size==1) Action(Kind.SEARCH,
                 searchButtons.single(),code="GOLD_GLOBAL_LAUNCHER_SEARCH")
-            else if(visibleGold!=null) Action(Kind.SEARCH,visibleGold,
-                code="GOLD_GLOBAL_LAUNCHER_SEARCH")
             // Crucial: missing Search EditText is a bounded, read-only
             // rebuilding state, NOT an order confirmation. No gesture,
             // query, product tap or imported-list approval occurs on WAIT.
@@ -960,6 +933,86 @@ internal object MorningReadPolicy {
         return Action(Kind.WAIT,code="GOLD_SEARCH_REBUILDING")
     }
 
+
+    /** Owner-started Gold research ONLY: the user's screenshot proves that
+     * Samsung can show the already entered "Gold" above the leverage
+     * preview even when Accessibility temporarily exposes no EditText.
+     * Reopen only that one exact noneditable search label. Never type here;
+     * the next cycle must recover a genuine searchable EditText first.
+     * Keep the regular detail/product ancestry guard fully unchanged.
+     */
+    private fun visibleGoldSearchTextAfterLauncher(nodes:List<Node>): Action? {
+        if(nodes.isEmpty() || nodes.size>500 || genericTurboDirectory(nodes) ||
+            protection(nodes)!="PROTECTED_ORDER_CONFIRM" ||
+            nodes.any { it.editable || it.containsInput || it.password || it.sensitive })
+            return null
+        if(nodes.any { n -> listOf(n.text,n.description,n.hint,n.row)
+                .any { hasActualOrderOrPrivateMarker(it,goldResearchProtectedForm) } })
+            return null
+        fun exact(value:String,label:String)=normalized(value).equals(label,true)
+        if(listOf("Märkte","Hebelprodukte","Top Ergebnisse",
+                "Alle Ergebnisse in Hebelprodukte")
+                .any { label -> nodes.count { exact(it.text,label) }!=1 })
+            return null
+        val marked=nodes.indices.filter { i ->
+            listOf(nodes[i].text,nodes[i].description,nodes[i].hint)
+                .any(orderMarkers.first().second::containsMatchIn)
+        }
+        val launcher=marked.singleOrNull() ?: return null
+        val order=nodes[launcher]
+        val exactOrder=Regex("(?iu)^(order platzieren|place order)$")
+        if(!canClick(order) || order.editable || order.containsInput ||
+            order.password || order.sensitive ||
+            listOf(order.text,order.description,order.hint,order.row)
+                .filter(String::isNotBlank).flatMap { it.lines() }
+                .filter(String::isNotBlank)
+                .let { it.isEmpty() || it.any { label ->
+                    !exactOrder.matches(normalized(label))
+                } })return null
+        fun below(child:Int,ancestor:Int):Boolean {
+            var p=nodes[child].parent;var steps=0
+            while(p in nodes.indices && steps++<nodes.size) {
+                if(p==ancestor)return true
+                p=nodes[p].parent
+            }
+            return false
+        }
+        if(nodes.indices.any { it!=launcher && below(it,launcher) })return null
+        // Do not treat a button embedded in a product card as the global
+        // Markets launcher. Ignore the root's aggregate row ONLY here.
+        fun inProductCard(index:Int):Boolean {
+            var p=nodes[index].parent;var steps=0
+            while(p in nodes.indices && steps++<nodes.size) {
+                if(nodes[p].parent !in nodes.indices)break
+                val ancestor=nodes[p]
+                if(ids.containsMatchIn(ancestor.text.uppercase()) ||
+                    ids.containsMatchIn(ancestor.row.uppercase()))
+                    return true
+                p=ancestor.parent
+            }
+            return false
+        }
+        if(inProductCard(launcher))return null
+        // A separately actionable search exists but failed verification;
+        // do not bypass that failure by clicking a bare Gold label instead.
+        if(nodes.indices.any { i -> canClick(nodes[i]) &&
+            (search(nodes[i]) || rowSearch(nodes[i])) })return null
+        val leverageIndex=nodes.indexOfFirst { exact(it.text,"Hebelprodukte") }
+        val target=nodes.indices.filter { i ->
+            val n=nodes[i]
+            i<leverageIndex && n.parent in nodes.indices &&
+                n.enabled && !n.editable && !n.containsInput &&
+                !n.password && !n.sensitive &&
+                exact(n.text,"Gold") &&
+                n.row.lines().filter(String::isNotBlank)
+                    .all { exact(it,"Gold") } &&
+                !below(i,launcher) && !below(launcher,i) &&
+                !inProductCard(i) &&
+                nodes.indices.none { j -> j!=i && below(j,i) }
+        }.singleOrNull() ?: return null
+        return Action(Kind.SEARCH,target,code="GOLD_GLOBAL_LAUNCHER_SEARCH")
+    }
+
     fun localResearchDecision(nodes: List<Node>, target: String,
                               keyboardReady: Boolean = true,
                               resultOpened: Boolean = true): Action {
@@ -978,6 +1031,7 @@ internal object MorningReadPolicy {
             // can use this narrow extra classification. Genuine order views
             // stay BLOCK: the actual search must be separately labelled.
             isolatedGoldSearchAfterLauncher(nodes)?.let { return it }
+            visibleGoldSearchTextAfterLauncher(nodes)?.let { return it }
             readOnlyGoldResearchWithOrderLabel(nodes,target,keyboardReady)?.let { return it }
             // After an exact ISIN was typed, Samsung sometimes drops the
             // "Hebelprodukte" header while retaining the isolated global
