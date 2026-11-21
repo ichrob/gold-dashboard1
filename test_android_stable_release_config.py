@@ -220,7 +220,7 @@ class AndroidStableReleaseTests(unittest.TestCase):
         ]: self.assertIn(guard, local_scroll)
         # Owner-approved SELL field preparation is isolated from the normal
         # Gold reader. It can only fill a fresh, explicitly approved form
-        # draft and never place, confirm or cancel a real broker order.
+        # draft. A DIFFERENT single-use local consent authorizes one verified sell-order click.
         offline = (ROOT / "android_companion/app/src/main/java/ch/bob/degirocompanion/StopLossOfflineSimulation.kt").read_text()
         policy_only = (ROOT / "android_companion/app/src/main/java/ch/bob/degirocompanion/StopLossPrefillPolicy.kt").read_text()
         manifest = (ROOT / "android_companion/app/src/main/AndroidManifest.xml").read_text()
@@ -239,7 +239,22 @@ class AndroidStableReleaseTests(unittest.TestCase):
         self.assertIn('<activity android:name=".StopLossSimulationActivity" android:exported="false" />',manifest)
         self.assertIn('<activity android:name=".StopLossMockOrderActivity" android:exported="false" />',manifest)
         self.assertIn('Stop-Loss & Stückzahl üben · nur Offline-Simulation',activity)
-        self.assertIn('Stop-Loss-Felder in DEGIRO vorbereiten · ohne Order',activity)
+        self.assertIn('Stop-Loss vorbereiten und nach separater Freigabe Order senden',activity)
+        # The form preparer still cannot click Order platzieren:
+        # only the distinct locally-approved, single-use helper may do so.
+        submit_policy = (ROOT / "android_companion/app/src/main/java/ch/bob/degirocompanion/StopLossOrderSubmitPolicy.kt").read_text()
+        submit_executor = (ROOT / "android_companion/app/src/main/java/ch/bob/degirocompanion/StopLossOrderSubmitExecutor.kt").read_text()
+        self.assertIn('StopLossOrderSubmitPolicy.decide(frame,draft)',service)
+        self.assertIn('StopLossPrefillSession.takeSubmissionAttempt(now)',service)
+        self.assertIn('StopLossOrderSubmitExecutor.executeOnce(',service)
+        self.assertIn('val verifiedStop = StopLossPrefillPolicy.decide(',submit_policy)
+        self.assertIn('val verifiedQuantity = StopLossPrefillPolicy.decide(',submit_policy)
+        self.assertIn('"Order platzieren"',submit_executor)
+        self.assertIn('submissionConsent.isChecked',entry)
+        self.assertIn('authorizeSubmission(',entry)
+        self.assertIn('.setPositiveButton("Ja, diese eine echte Order senden")',entry)
+        self.assertNotIn('StopLossOrderSubmitExecutor',helper)
+        self.assertNotIn('StopLossOrderSubmitExecutor',offline)
         self.assertIn('StopLossSimulationActivity::class.java',entry)
         self.assertIn('StopLossPrefillSession.arm(',entry)
         self.assertIn('confirmation.isChecked',entry)
