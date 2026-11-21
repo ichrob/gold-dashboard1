@@ -224,7 +224,7 @@ jobs:
             --target "$(git rev-parse HEAD)" \
             --title "Bob – Handy (Version $BOB_ANDROID_VERSION_CODE)" \
             --latest \
-            --notes "Dauerhaft signierte Bob-Android-App; manuelle Installation. Sichere Anzeige- und Sprachfunktionen; keine Echtgeldorders. Die Signatur muss mit früheren stabilen Versionen übereinstimmen."
+            --notes "Dauerhaft signierte Bob-Android-App; manuelle Installation. Nach ausdrücklicher lokaler Freigabe einer konkreten bestehenden Position kann Bob Stop-Loss-Verkaufswerte vorbereiten und die Schaltfläche Order platzieren höchstens einmal betätigen; dies kann eine echte Verkaufsorder auslösen. Zusätzliche Broker-Bestätigungen und Ausführungsstatus müssen in DEGIRO selbst geprüft werden. Keine automatische Kauforder oder dauerhaft freigegebene Echtgeldorder. Die Signatur muss mit früheren stabilen Versionen übereinstimmen."
           published="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
           if [ "$published" != "Bob-Handy.apk" ]; then
             echo "Release asset name differs from Bob-Handy.apk; do not mark the update verified." >&2
