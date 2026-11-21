@@ -772,7 +772,7 @@ internal object MorningReadPolicy {
             "ordertyp|limitpreis|stückzahl|anzahl kaufen|orderdetails|" +
             "orderübersicht|orderzusammenfassung|passwort|password|" +
             "login|anmelden|kontostand|portfolio|depotwert")
-        if(nodes.any { n -> n.password || n.sensitive || n.containsInput ||
+        if(nodes.any { n -> n.password || n.sensitive ||
             listOf(n.text,n.description,n.hint,n.row)
                 .any(unsafe::containsMatchIn) }) return null
         fun label(value:String,exact:String)=normalized(value).equals(exact,true)
@@ -789,15 +789,36 @@ internal object MorningReadPolicy {
         if(!preview && !goldRow)return null
         val inputs=nodes.indices.filter { nodes[it].editable }
         if(inputs.size>1)return null
+        fun below(child:Int,ancestor:Int):Boolean {
+            var at=nodes[child].parent;var hops=0
+            while(at in nodes.indices && hops++<nodes.size) {
+                if(at==ancestor)return true
+                at=nodes[at].parent
+            }
+            return false
+        }
         if(inputs.size==1) {
             val index=inputs.single()
             val input=nodes[index]
             if(!input.enabled || input.password || input.sensitive ||
                 !isSearchInput(input.id,input.description,input.hint) ||
                 input.text !in setOf("Gold",""))return null
+            // Never focus a search field nested in an order launcher, nor
+            // treat an order node nested in this input as a search target.
+            val markers=nodes.indices.filter { i ->
+                listOf(nodes[i].text,nodes[i].description,nodes[i].hint)
+                    .any(orderMarkers.first().second::containsMatchIn)
+            }
+            if(markers.any { it==index || below(index,it) || below(it,index) })
+                return null
+            // Aggregated WebView search parents may advertise containsInput.
+            // They are safe only when they lead to this ONE real EditText.
+            if(nodes.indices.any { i -> nodes[i].containsInput &&
+                i!=index && !below(index,i) })return null
             return Action(if(input.focused && keyboardReady) Kind.QUERY
                 else Kind.FOCUS,index,code="GOLD_READONLY_SEARCH_RECOVERED")
         }
+        if(nodes.any { it.containsInput })return null
         // No input means NO ACTION. Let the caller's original finite session
         // lease re-check the same DEGIRO window, never manufacture controls.
         return Action(Kind.WAIT,code="GOLD_SEARCH_REBUILDING")
