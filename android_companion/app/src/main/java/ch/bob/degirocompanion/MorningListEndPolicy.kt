@@ -128,7 +128,11 @@ internal object MorningListEndPolicy {
         current.all { SeriesEvidence.validIsin(it) && it in seen } &&
         action.kind == MorningReadPolicy.Kind.COLLECT && action.isins == current &&
         hasVerifiedFooter(nodes) &&
-        !nodes.any { it.password || it.sensitive || it.editable } &&
+        // The original Gold search EditText may remain in the virtualized
+        // footer tree after the keyboard was dismissed. For a FOURTH cropped
+        // photo only, tolerate this single proven Gold input (and ancestors).
+        // Order forms, account content and any other input remain forbidden.
+        fourthPhotoSurfaceGate(nodes) == FourthPhotoGate.ALLOWED &&
         safeFooterProtection(nodes)
 
     /** A fourth CROPPED Gold-list photograph is evidence collection only.
