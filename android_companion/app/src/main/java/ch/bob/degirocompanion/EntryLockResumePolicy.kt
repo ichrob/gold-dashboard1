@@ -8,8 +8,10 @@ internal object EntryLockResumePolicy {
         userOptedIn: Boolean,
         entryReadOnly: Boolean,
         sessionActive: Boolean,
-        readingInProgress: Boolean
-    ): Boolean = userOptedIn && entryReadOnly && sessionActive && !readingInProgress
+        readingInProgress: Boolean,
+        productReadOnly: Boolean = false
+    ): Boolean = userOptedIn && (entryReadOnly || productReadOnly) &&
+        sessionActive && !readingInProgress
 
     fun mayResume(
         wasWaiting: Boolean,

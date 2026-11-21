@@ -255,10 +255,13 @@ class ProductReadActivity : Activity() {
         // or persist a market-entry signal, create a trade, or grant a remote
         // broker-control session beyond the ordinary product-reading gates.
         button("Stop-Loss & Stückzahl üben · nur Offline-Simulation") {
-            // Reuse PR #1790's successful non-broker mock. This launches
-            // ONLY our non-exported simulation screen and cannot arm the
-            // ProductReadService or access an actual DEGIRO order.
+            // Pure local mock; no DEGIRO app accessed.
             startActivity(Intent(this,StopLossSimulationActivity::class.java))
+        }
+        button("Stop-Loss-Felder in DEGIRO vorbereiten · ohne Order") {
+            // Separate local confirmation, never an automatic broker order
+            // and never a remote command. Explicitly review held position.
+            startActivity(Intent(this,StopLossPrefillActivity::class.java))
         }
         button("Einstiegskurs-Navigation sofort testen · ohne Signal") {
             chooseEntryNavigationTest()
@@ -776,7 +779,9 @@ class ProductReadActivity : Activity() {
                 }
                 ProductReadRequest.cancel();ProductReadSession.clear()
                 if(session==GoldReadStartPolicy.Decision.START_SESSION) {
-                    PhoneRemote.start(this)
+                    // Explicit owner start; an IDLE read session may survive
+                    // SCREEN_OFF, never the active Gold scan or a keyguard.
+                    PhoneRemote.start(this,resumeAfterOwnerUnlock=true)
                     startedPhoneHere=true
                 }
                 check(PhoneRemote.active()) { "Handy-Sitzung konnte nicht gestartet werden." }
@@ -972,8 +977,9 @@ class ProductReadActivity : Activity() {
                 result.text=startFeedback.text
                 startActivity(launch)
             } else {
-                // No locally enrolled PIN: read only the already logged-in broker.
-                PhoneRemote.start(this)
+                // No automatic PIN: resume only the idle, owner-opened
+                // product-read session after the owner unlocks Samsung.
+                PhoneRemote.start(this,resumeAfterOwnerUnlock=true)
                 startedHere=true
                 if(!PhoneRemote.active()) reject("START_SESSION_FAILED","Bob-Handysitzung konnte nicht aktiviert werden: "+PhoneRemote.message)
                 val existingDetails=MorningReadRun.resumeRecent(this)

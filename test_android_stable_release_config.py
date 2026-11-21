@@ -218,25 +218,44 @@ class AndroidStableReleaseTests(unittest.TestCase):
             'visible.kind!=Kind.COLLECT', 'visible.isins.any { it !in localCandidates }',
             'innermost(nodes,candidates).singleOrNull()'
         ]: self.assertIn(guard, local_scroll)
-        # PR #1790's old Stop Loss and quantity calculations are back as
-        # PURE OFFLINE simulations, not as a hidden live DEGIRO form adapter.
+        # Owner-approved SELL field preparation is isolated from the normal
+        # Gold reader. It can only fill a fresh, explicitly approved form
+        # draft and never place, confirm or cancel a real broker order.
         offline = (ROOT / "android_companion/app/src/main/java/ch/bob/degirocompanion/StopLossOfflineSimulation.kt").read_text()
         policy_only = (ROOT / "android_companion/app/src/main/java/ch/bob/degirocompanion/StopLossPrefillPolicy.kt").read_text()
         manifest = (ROOT / "android_companion/app/src/main/AndroidManifest.xml").read_text()
+        activity = (ROOT / "android_companion/app/src/main/java/ch/bob/degirocompanion/ProductReadActivity.kt").read_text()
+        helper = (ROOT / "android_companion/app/src/main/java/ch/bob/degirocompanion/StopLossPrefillExecutor.kt").read_text()
+        session = (ROOT / "android_companion/app/src/main/java/ch/bob/degirocompanion/StopLossPrefillSession.kt").read_text()
+        entry = (ROOT / "android_companion/app/src/main/java/ch/bob/degirocompanion/StopLossPrefillActivity.kt").read_text()
         self.assertIn('internal object StopLossOfflineSimulation',offline)
         self.assertIn('internal object StopLossPrefillPolicy',policy_only)
-        self.assertNotIn('StopLossPrefillExecutor',service)
-        self.assertNotIn('StopLossPrefillSession',service)
-        self.assertNotIn('StopLossPrefillActivity',manifest)
+        self.assertIn('StopLossPrefillExecutor.execute(',service)
+        self.assertIn('StopLossPrefillSession.onArmed',service)
+        self.assertIn('StopLossPrefillSession.finish("SCREEN_LOCKED")',service)
+        self.assertIn('StopLossPrefillSession.finish("USER_STOP")',service)
+        self.assertIn('StopLossPrefillSession.finish("SERVICE_INTERRUPTED")',service)
+        self.assertIn('<activity android:name=".StopLossPrefillActivity" android:exported="false" />',manifest)
         self.assertIn('<activity android:name=".StopLossSimulationActivity" android:exported="false" />',manifest)
         self.assertIn('<activity android:name=".StopLossMockOrderActivity" android:exported="false" />',manifest)
-        self.assertIn('Stop-Loss & Stückzahl üben · nur Offline-Simulation',
-                      (ROOT / "android_companion/app/src/main/java/ch/bob/degirocompanion/ProductReadActivity.kt").read_text())
-        # Source comments may identify the deliberately excluded executor,
-        # but neither pure class may invoke its real broker action.
+        self.assertIn('Stop-Loss & Stückzahl üben · nur Offline-Simulation',activity)
+        self.assertIn('Stop-Loss-Felder in DEGIRO vorbereiten · ohne Order',activity)
+        self.assertIn('StopLossSimulationActivity::class.java',entry)
+        self.assertIn('StopLossPrefillSession.arm(',entry)
+        self.assertIn('confirmation.isChecked',entry)
+        self.assertIn('StopLossDraftCodec.parse(',entry)
+        self.assertIn('120_000L',session)
+        self.assertIn('ORDER_BESTAETIGUNG_GESCHUETZT',policy_only)
+        self.assertIn('val allowed = when(stage)',helper)
+        self.assertIn('Stage.WRITE_STOP',helper)
+        self.assertIn('Stage.WRITE_QUANTITY',helper)
+        self.assertNotIn('performGlobalAction',helper)
+        self.assertNotIn('dispatchGesture(',helper)
+        self.assertNotIn('createOrder',helper)
+        self.assertNotIn('placeOrder',helper)
+        self.assertNotIn('ACTION_SET_TEXT',offline)
         self.assertNotIn('StopLossPrefillExecutor.execute(',offline)
         self.assertNotIn('StopLossPrefillExecutor.execute(',policy_only)
-        self.assertNotIn('StopLossPrefillSession',service)
         self.assertIn('MorningReadPolicy.postCaptureGoldSearchFocusIndex(', service)
         # The research-only Gold preview may have one exact unrelated
         # global "Order platzieren" launcher. It may permit only a uniquely
