@@ -59,6 +59,15 @@ class StopLossPrefillPolicyTest {
         assertEquals(StopLossPrefillPolicy.Kind.BLOCK,p.decide(StopLossPrefillPolicy.Stage.ORDER_TYPE,passwordFrame,draft).kind)
         assertEquals(StopLossPrefillPolicy.Kind.BLOCK,p.decide(StopLossPrefillPolicy.Stage.ORDER_TYPE,frame().copy(app="com.example.other"),draft).kind)
     }
+    @Test fun confirmationPageAlwaysBlocksPrefill() {
+        val f=frame(type="Stop Loss").copy(nodes=frame(type="Stop Loss").nodes +
+            StopLossPrefillPolicy.Node("Order bestätigen",clickable=true))
+        for(stage in StopLossPrefillPolicy.Stage.values()) {
+            val action=StopLossPrefillPolicy.decide(stage,f,draft)
+            assertEquals(StopLossPrefillPolicy.Kind.BLOCK,action.kind)
+        }
+    }
+
     @Test fun orderTypeAndFieldsOnly() {
         val p=StopLossPrefillPolicy
         assertEquals(StopLossPrefillPolicy.Kind.CLICK,p.decide(StopLossPrefillPolicy.Stage.ORDER_TYPE,frame(),draft).kind)
