@@ -705,6 +705,57 @@ class MorningReadPolicyTest {
         }
     }
 
+    @Test fun visibleGoldSearchTextAboveLeveragePreviewMayReopenKeyboard() {
+        val target="DE000SQ02JQ6"
+        // Synthetic accessibility tree with top Gold search and four
+        // preview rows, including one excluded factor instrument.
+        val nodes=listOf(
+            MorningReadPolicy.Node("",row="Gold Hebelprodukte Top Ergebnisse DE000SQ02JQ6 DE000PU0D101"),
+            MorningReadPolicy.Node("Märkte",parent=0),
+            MorningReadPolicy.Node("",parent=0,row="Gold"),
+            MorningReadPolicy.Node("Gold",parent=2,row="Gold"),
+            MorningReadPolicy.Node("×",parent=2,clickable=true),
+            MorningReadPolicy.Node("Hebelprodukte",parent=0,selected=true),
+            MorningReadPolicy.Node("Alle Ergebnisse in Hebelprodukte",parent=0),
+            MorningReadPolicy.Node("Top Ergebnisse",parent=0),
+            MorningReadPolicy.Node("SG Gold Turbo Mini Call $target",
+                row="SG Gold Turbo Mini Call $target",parent=0),
+            MorningReadPolicy.Node(
+                "BNP GOLD (COMEX) DEC. 26 Faktor 15 Long R 1 | DE000PU0D101",
+                parent=0),
+            MorningReadPolicy.Node("Order platzieren",clickable=true,
+                row="Order platzieren",parent=0)
+        )
+        val a=MorningReadPolicy.localResearchDecision(
+            nodes,target,keyboardReady=false,resultOpened=false)
+        assertEquals(MorningReadPolicy.Kind.SEARCH,a.kind)
+        assertEquals("GOLD_GLOBAL_LAUNCHER_SEARCH",a.code)
+        assertEquals(3,a.index)
+        assertNotEquals(9,a.index)
+        assertNotEquals(10,a.index)
+        val ambiguous=nodes.toMutableList().apply {
+            add(5,MorningReadPolicy.Node("Gold",parent=2,row="Gold"))
+        }
+        assertNotEquals(MorningReadPolicy.Kind.SEARCH,
+            MorningReadPolicy.localResearchDecision(ambiguous,target,false,false).kind)
+        val noGold=nodes.mapIndexed { i,n -> if(i==3)n.copy(text="",row="") else n }
+        assertNotEquals(MorningReadPolicy.Kind.SEARCH,
+            MorningReadPolicy.localResearchDecision(noGold,target,false,false).kind)
+        val noFull=nodes.filterNot { it.text=="Alle Ergebnisse in Hebelprodukte" }
+        assertNotEquals(MorningReadPolicy.Kind.SEARCH,
+            MorningReadPolicy.localResearchDecision(noFull,target,false,false).kind)
+        for(unsafe in listOf(
+            MorningReadPolicy.Node("Order bestätigen"),
+            MorningReadPolicy.Node("Orderart"),
+            MorningReadPolicy.Node("Limitpreis"),
+            MorningReadPolicy.Node("Stückzahl"),
+            MorningReadPolicy.Node("",editable=true,hint="Anzahl"),
+            MorningReadPolicy.Node("",password=true)
+        ))assertEquals(MorningReadPolicy.Kind.BLOCK,
+            MorningReadPolicy.localResearchDecision(
+                nodes+unsafe,target,keyboardReady=false,resultOpened=false).kind)
+    }
+
     @Test fun virtualizedGoldSearchIsNeverAnOrderConfirmationJustBecauseOfLauncher() {
         val target="DE000SQ02JQ6"
         val gold=MorningReadPolicy.Node("SG Gold Turbo Mini Call $target",
