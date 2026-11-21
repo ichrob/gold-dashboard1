@@ -827,8 +827,15 @@ internal object MorningReadPolicy {
             (Regex("(?iu)\\b(turbo|knock[ -]?out|mini[ -]?(future|long|short))\\b")
                 .containsMatchIn(n.row) || unlimitedGoldRow(n.row))
         }
-        if(!preview && !goldRow)return null
+        val markets=nodes.any { label(it.text,"Märkte") }
+        if(!preview && !(markets && goldRow))return null
         val inputs=nodes.indices.filter { nodes[it].editable }
+        // With no actual EditText, an ambiguous or nested search button
+        // can never be downgraded to harmless passive WAIT. The existing
+        // isolatedGoldSearchAfterLauncher owns the one-safe-search case.
+        if(inputs.isEmpty() && nodes.any { n ->
+            canClick(n) && (search(n) || rowSearch(n))
+        })return null
         if(inputs.size>1)return null
         fun below(child:Int,ancestor:Int):Boolean {
             var at=nodes[child].parent;var hops=0
