@@ -758,9 +758,11 @@ class ProductReadActivity : Activity() {
                     "Zuerst die automatische Diagnose verbinden und in Bob freigeben."
                 }
                 val launch=packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE) ?: error("DEGIRO-App fehlt")
-                if(LocalPinVault.exists(this)) {
-                    check(PhoneDiagnostics.keypadTestVerified(this)) { "Lokale PIN ist vorhanden, aber der sichere Tastaturtest fehlt. Unter Einrichtung prüfen." }
-                    check(LocalPinVault.available(this)) { "Handy entsperren, damit der lokale PIN-Schlüssel genutzt werden kann." }
+                val pinStored=LocalPinVault.exists(this)
+                // An enrolled but unverified PIN does not veto owner-approved
+                // product reads. Only the verified keypad path may type PINs.
+                if(LocalPinReadStartPolicy.useVerifiedPin(pinStored,
+                        PhoneDiagnostics.keypadTestVerified(this),LocalPinVault.available(this))) {
                     localPin=LocalPinVault.load(this)
                     // An idle remote session must not suppress the verified-login handoff.
                     if(PhoneRemote.active()) PhoneRemote.stop(this,"STOPPED")
@@ -781,6 +783,7 @@ class ProductReadActivity : Activity() {
                 GoldSearchRun.start()
                 startedHere=true
                 ProductReadRequest.startGoldList(SystemClock.elapsedRealtime())
+                if(pinStored) result.text="PIN-Automatik nicht freigegeben. Bitte DEGIRO nötigenfalls selbst entsperren; Bob liest nur die Goldprodukte."
                 startActivity(launch)
             }.onFailure {
                 if(loginStartedHere) {
@@ -955,11 +958,12 @@ class ProductReadActivity : Activity() {
                 reject("START_DIAGNOSTICS_UNPAIRED","Automatische Diagnose nicht verbunden. Unter „Einrichtung und weitere Möglichkeiten“ verbinden und freigeben.")
             val launch=packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE)
                 ?: reject("START_DEGIRO_MISSING","DEGIRO-App fehlt oder ist für Bob nicht erreichbar.")
-            if(LocalPinVault.exists(this)) {
-                if(!PhoneDiagnostics.keypadTestVerified(this))
-                    reject("START_PIN_TEST_MISSING","Lokale DEGIRO-PIN ist gespeichert, aber der sichere Tastaturtest fehlt. Unter „Einrichtung“ zuerst „Eine Testziffer eingeben und löschen“ abschließen.")
-                if(!LocalPinVault.available(this))
-                    reject("START_PIN_UNAVAILABLE","Samsung entsperren und die lokal gespeicherte PIN-Verfügbarkeit prüfen.")
+            val pinStored=LocalPinVault.exists(this)
+            // A saved PIN with no verified keypad is not permission to type
+            // digits. It must not block an independently owner-started,
+            // read-only attempt on an already logged-in DEGIRO market page.
+            if(LocalPinReadStartPolicy.useVerifiedPin(pinStored,
+                    PhoneDiagnostics.keypadTestVerified(this),LocalPinVault.available(this))) {
                 localPin=LocalPinVault.load(this)
                 LoginToReadHandoff.arm(SystemClock.elapsedRealtime())
                 PinReadinessProbe.startLocalLogin(localPin!!)
@@ -979,7 +983,9 @@ class ProductReadActivity : Activity() {
                 // list reader. A resumed one-product read remains 60s.
                 if(existingDetails) ProductReadRequest.start(SystemClock.elapsedRealtime())
                 else ProductReadRequest.startGoldList(SystemClock.elapsedRealtime())
-                startFeedback.text="DEGIRO wird geöffnet · ohne gespeicherte PIN muss DEGIRO bereits angemeldet sein."
+                startFeedback.text=if(pinStored)
+                    "DEGIRO wird geöffnet · gespeicherte PIN wird ohne sicheren Tastaturnachweis NICHT verwendet. Falls nötig bitte selbst in DEGIRO anmelden; Bob liest nur die Produkte."
+                    else "DEGIRO wird geöffnet · ohne gespeicherte PIN muss DEGIRO bereits angemeldet sein."
                 result.text=startFeedback.text
                 startActivity(launch)
             }
