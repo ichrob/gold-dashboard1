@@ -15,18 +15,17 @@ internal object StopLossOrderSubmitPolicy {
         frame: StopLossPrefillPolicy.Frame,
         draft: StopLossPrefillDraft
     ): StopLossPrefillPolicy.Decision {
-        val p = StopLossPrefillPolicy
-        fun block(code: String) = p.Decision(p.Kind.BLOCK, code = code)
+        fun block(code: String) = StopLossPrefillPolicy.Decision(StopLossPrefillPolicy.Kind.BLOCK, code = code)
 
         // Both fields must still match after the owner switched from Bob to
         // DEGIRO. The prefill policy also verifies SELL, ISIN, stop type,
         // field geometry, protected surfaces, and the broker package.
-        val verifiedStop = p.decide(p.Stage.VERIFY_STOP, frame, draft)
-        if (verifiedStop.kind != p.Kind.ADVANCE ||
-            verifiedStop.next != p.Stage.WRITE_QUANTITY)
+        val verifiedStop = StopLossPrefillPolicy.decide(StopLossPrefillPolicy.Stage.VERIFY_STOP, frame, draft)
+        if (verifiedStop.kind != StopLossPrefillPolicy.Kind.ADVANCE ||
+            verifiedStop.next != StopLossPrefillPolicy.Stage.WRITE_QUANTITY)
             return block("ORDER_STOP_NICHT_VERIFIZIERT")
-        val verifiedQuantity = p.decide(p.Stage.VERIFY_QUANTITY, frame, draft)
-        if (verifiedQuantity.kind != p.Kind.DONE)
+        val verifiedQuantity = StopLossPrefillPolicy.decide(StopLossPrefillPolicy.Stage.VERIFY_QUANTITY, frame, draft)
+        if (verifiedQuantity.kind != StopLossPrefillPolicy.Kind.DONE)
             return block("ORDER_STUECKZAHL_NICHT_VERIFIZIERT")
 
         // Never act on a summary / second confirmation screen; those
@@ -42,6 +41,6 @@ internal object StopLossOrderSubmitPolicy {
         val unique = buttons.singleOrNull() ?: return block("ORDER_BUTTON_UNEINDEUTIG")
         if (frame.nodes.count { norm(it.label) == "order platzieren" } != 1)
             return block("ORDER_BUTTON_MEHRFACH")
-        return p.Decision(p.Kind.CLICK, unique, next = p.Stage.DONE)
+        return StopLossPrefillPolicy.Decision(StopLossPrefillPolicy.Kind.CLICK, unique, next = StopLossPrefillPolicy.Stage.DONE)
     }
 }
