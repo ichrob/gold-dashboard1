@@ -217,7 +217,11 @@ class ProductReadService : AccessibilityService() {
                 MorningReadRun.running || GoldSearchRun.running
             val pinRunning=PinReadinessProbe.running
             val handoffPending=LoginToReadHandoff.pending(SystemClock.elapsedRealtime())
-            val inProgress=reading || pinRunning || handoffPending
+            // A server-OCR receipt can otherwise arrive while the owner is
+            // locked and try to hand off a new detail read. Treat pending
+            // list verification as IN-PROGRESS, never as safe idle time.
+            val inProgress=reading || pinRunning || handoffPending ||
+                MorningListDelivery.waiting
             if(PhoneRemote.pauseForScreenLock(inProgress)) return
             // Lock aborts a running test. Invalidate the verified-PIN handoff
             // before callbacks can schedule any further DEGIRO navigation.
