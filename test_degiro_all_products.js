@@ -52,6 +52,34 @@ assert.equal(combined.auditQuote({isin:ids[5],sourceObservations:[{
 }]},Date.parse('2026-10-20T02:00:00Z'),'ok'),null,'Issuer price pair requires both clocks');
 
 assert.equal(combined.summary(items,status).accountSynced,false);
+const factorIsin='DE000PU0D101';
+assert.equal(combined.validIsin(factorIsin),true);
+// Corrected owner request: ten source entries include one factor, leaving
+// NINE active Gold KO candidates. Do not invent a replacement tenth KO.
+const sourceTen=[...ids.slice(0,9).map(isin=>({isin,name:'Gold Turbo '+isin})),
+ {isin:factorIsin,name:'BNP Faktor 15'}];
+assert.equal(sourceTen.length,10);
+const activeNine=combined.combine(null,sourceTen,
+ {status:'ok',items:sourceTen.map(p=>({isin:p.isin,
+   state:p.isin===factorIsin?'excluded-factor':'analysis-evidence-complete'}))},
+ [],Date.now());
+assert.equal(activeNine.length,9,'Ten original entries minus one excluded factor = nine active KO products');
+assert(activeNine.every(x=>x.isin!==factorIsin));
+assert(activeNine.every(x=>x.rankingEligible===false),'A display-count change must not grant broker execution');
+
+assert.equal(combined.factorExcluded({isin:factorIsin,state:'excluded-factor'}),true);
+const hiddenFactor=combined.combine(null,[{isin:factorIsin,name:'BNP Faktor 15',direction:'LONG'}],
+ {status:'ok',items:[{isin:factorIsin,state:'excluded-factor',missing:['factor']},
+  {isin:ids[11],state:'analysis-evidence-complete',direction:'SHORT'}]},[],Date.now());
+assert(hiddenFactor.every(x=>x.isin!==factorIsin),'Factor cannot occupy an active KO observation slot');
+assert(hiddenFactor.some(x=>x.isin===ids[11]),'Unrelated KO candidate must remain');
+const actualHolding=combined.combine({records:[{isin:factorIsin,type:'factor',product:'BNP Faktor 15',
+ quantity:2,currency:'EUR',price:'10.00',value:'20.00'}]},[],{
+ status:'stale',items:[{isin:factorIsin,state:'excluded-factor',missing:['factor']}]},[],Date.now());
+assert.equal(actualHolding.length,1,'Genuine held factor stays visible in depot view');
+assert(actualHolding[0].inDepot&&actualHolding[0].productKind==='factor');
+assert.equal(actualHolding[0].rankingEligible,false);
+
 const storage={
  getItem:key=>key==='bobDegiroProductsV2'?JSON.stringify({version:2,
   products:watchlist, listUploadedAt:'2026-10-19T06:30:00Z'}):null

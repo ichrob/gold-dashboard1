@@ -34,10 +34,16 @@ PANEL = r'''<section id="bobProductAudit" class="card">
  let latestReport=null;
  let preparedAuditText='';
  const safe=value=>String(value??'unbekannt').replace(/[\r\n\t\u0000-\u001f\u007f]/g,' ').replace(/\s+/g,' ').slice(0,180);
+ const factorExcluded=item=>item?.isin==='DE000PU0D101' ||
+  item?.state==='excluded-factor' ||
+  (Array.isArray(item?.missing)&&item.missing.includes('factor')) ||
+  /\b(faktor(?:produkt)?|factor(?:product)?|constant leverage)\b/i
+   .test(String(item?.name||''));
+ const activeProducts=items=>Array.isArray(items)?items.filter(x=>!factorExcluded(x)):[];
  // Privacy boundary: user initiated only. No account, order, quote amounts,
  // raw stored screenshots, credentials or automatic outbound transmission.
  function auditTextForChatGPT(r){
-  const items=Array.isArray(r?.items)?r.items:[];
+  const items=activeProducts(r?.items);
   const time=value=>typeof value==='string'&&Number.isFinite(Date.parse(value))?safe(value):'nicht nachgewiesen';
   const lines=[
    'Bob – privater Gold-Hebelprodukt-Prüfbericht (vom Nutzer bewusst geteilt)',
@@ -91,12 +97,14 @@ PANEL = r'''<section id="bobProductAudit" class="card">
   });
  }
  function problemReport(report,local){
-  const source=Array.isArray(report?.items)?report.items:[];
+  const source=activeProducts(report?.items);
   const selected=new Map(source.filter(item=>item.state!=='terminated'&&
    (item.state==='incomplete'||item.needsKiHelp===true||(Array.isArray(item.missing)&&item.missing.length)))
    .map(item=>[item.isin,{...item}]));
   for(const card of local){
+   if(card.isin==='DE000PU0D101')continue;
    const original=selected.get(card.isin)||source.find(item=>item.isin===card.isin)||{isin:card.isin,state:'local-product-problem'};
+   if(factorExcluded(original))continue;
    const cardDiscrepancy=report?.status==='ok'&&['analysis-evidence-complete','issuer-evidence-complete'].includes(original.state)
     &&Array.isArray(original.missing)&&!original.missing.length&&original.needsKiHelp!==true;
    selected.set(card.isin,{...original,cardDiscrepancy,cardMessages:[card.labels,...card.messages]});
@@ -203,7 +211,9 @@ PANEL = r'''<section id="bobProductAudit" class="card">
   const problem=byId('bobProductAuditProblemCount'),details=byId('bobProductAuditProblemItems');
   const opened=new Map([...out.children].map(el=>[el.dataset.isin,el.open]));
   out.replaceChildren();details.replaceChildren();
-  const good=r.status==='ok',items=Array.isArray(r.items)?r.items:[],incomplete=Number.isInteger(r.incomplete)?r.incomplete:null;
+  const good=r.status==='ok',rawItems=Array.isArray(r.items)?r.items:[],
+   items=activeProducts(rawItems),factorCount=rawItems.length-items.length,
+   incomplete=Number.isInteger(r.incomplete)?r.incomplete:null;
   const handset=byId('bobHandyReadEvidenceItems');
   if(handset){
    const oldOpen=new Map([...handset.querySelectorAll('details[data-isin]')].map(x=>[x.dataset.isin,x.open]));
@@ -251,7 +261,9 @@ PANEL = r'''<section id="bobProductAudit" class="card">
   }else if(r.status==='stale'){
    status.textContent='⚠️ Der Prüfbericht ist veraltet. Keine aktuelle Produktbestätigung.';
   }else if(good){
-   status.textContent=items.length+' Produkte geprüft · '+incomplete+' mit fehlenden oder veralteten Werten · '+(r.terminated||0)+' beendet · Hintergrundüberwachung';
+   status.textContent=items.length+' Nicht-Faktor-Produkte angezeigt · '+incomplete+
+    ' mit fehlenden oder veralteten Werten · '+(r.terminated||0)+
+    ' beendet · '+factorCount+' Faktorprodukt(e) ausgeschlossen · Hintergrundüberwachung';
   }else{
    status.textContent='Prüfung derzeit nicht erreichbar; aktuelle Produktnachweise fehlen.';
   }
