@@ -777,6 +777,46 @@ internal object MorningReadPolicy {
             listOf(n.text,n.description,n.hint,n.row)
                 .any(unsafe::containsMatchIn) }) return null
         fun label(value:String,exact:String)=normalized(value).equals(exact,true)
+        // Permit at most one actionable global launcher. Passive copies must
+        // contain only that exact label; a second button or mixed order form
+        // can never be a research-search exception.
+        val orderLabels=nodes.indices.filter { i ->
+            listOf(nodes[i].text,nodes[i].description,nodes[i].hint)
+                .any(orderMarkers.first().second::containsMatchIn)
+        }
+        if(orderLabels.size !in 1..4)return null
+        val clickableOrder=orderLabels.filter { canClick(nodes[it]) }
+        if(clickableOrder.size!=1)return null
+        val exactOrder=Regex("(?iu)^(order platzieren|place order)$")
+        for(index in orderLabels) {
+            val n=nodes[index]
+            val labels=listOf(n.text,n.description,n.hint,n.row).filter(String::isNotBlank)
+            if(!n.enabled || n.editable || n.containsInput || n.password ||
+                n.sensitive || labels.isEmpty() || labels.any { value ->
+                    value.lines().filter(String::isNotBlank)
+                        .any { !exactOrder.matches(normalized(it)) }
+                })return null
+        }
+        fun ancestorOf(ancestor:Int,child:Int):Boolean {
+            var at=nodes[child].parent;var hops=0
+            while(at in nodes.indices && hops++<nodes.size) {
+                if(at==ancestor)return true
+                at=nodes[at].parent
+            }
+            return false
+        }
+        val launcher=clickableOrder.single()
+        if(nodes.indices.any { it!=launcher && ancestorOf(launcher,it) })return null
+        if(orderLabels.any { i ->
+            var at=nodes[i].parent;var hops=0;var related=false
+            while(at in nodes.indices && hops++<nodes.size) {
+                val n=nodes[at]
+                if(ids.containsMatchIn(n.text.uppercase()) ||
+                    ids.containsMatchIn(n.row.uppercase()))related=true
+                at=n.parent
+            }
+            related
+        })return null
         if(nodes.count { label(it.text,"Hebelprodukte") }!=1)return null
         // Only the existing Gold preview, not the generic market directory
         // or an unrelated product detail, can reach this exception.
