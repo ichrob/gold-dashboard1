@@ -33,13 +33,13 @@ PANEL = r'''<section id="bobProductAudit" class="card">
  const byId=id=>document.getElementById(id);
  let latestReport=null;
  let preparedAuditText='';
+ const safe=value=>String(value??'unbekannt').replace(/[\r\n\t\u0000-\u001f\u007f]/g,' ').replace(/\s+/g,' ').slice(0,180);
  const factorExcluded=item=>item?.isin==='DE000PU0D101' ||
   item?.state==='excluded-factor' ||
   (Array.isArray(item?.missing)&&item.missing.includes('factor')) ||
   /\b(faktor(?:produkt)?|factor(?:product)?|constant leverage)\b/i
    .test(String(item?.name||''));
  const activeProducts=items=>Array.isArray(items)?items.filter(x=>!factorExcluded(x)):[];
- const safe=value=>String(value??'unbekannt').replace(/[\r\n\t\u0000-\u001f\u007f]/g,' ').replace(/\s+/g,' ').slice(0,180);
  // Privacy boundary: user initiated only. No account, order, quote amounts,
  // raw stored screenshots, credentials or automatic outbound transmission.
  function auditTextForChatGPT(r){
