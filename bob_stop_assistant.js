@@ -160,24 +160,28 @@
   const {product,stopGold,targetGold,spots,quote,now=Date.now()}=info||{};
   if(!panel){
    panel=document.createElement('section');panel.id='bobTwoStageStop';panel.style.cssText='border:1px solid #cbd5e1;border-radius:12px;padding:12px;margin:12px 0;';
-   panel.innerHTML='<h4>Zweistufiger Produkt-Stopp · ohne automatische Orders</h4><p data-stop-stage role="status"></p><p data-stop-model></p><p data-stop-issuer></p><details><summary>Quellenvergleich und Originalzeiten</summary><p data-stop-sources style="white-space:pre-line"></p></details><details><summary>Manuellen DEGIRO-Schutzstopp vorbereiten</summary><p data-stop-instructions style="white-space:pre-line"></p><p><button type="button" data-copy-isin>ISIN kopieren</button> <button type="button" data-copy-stop>Modell-Stopp kopieren</button> <button type="button" data-copy-simulation>Offline-Simulation: Bob-Modellwerte kopieren</button></p><p data-copy-status role="status"></p></details>';
+   panel.innerHTML='<h4>Zweistufiger Produkt-Stopp · ohne automatische Orders</h4><p data-stop-stage role="status"></p><p data-stop-model></p><p data-stop-issuer></p><details><summary>Quellenvergleich und Originalzeiten</summary><p data-stop-sources style="white-space:pre-line"></p></details><details><summary>Manuellen DEGIRO-Schutzstopp vorbereiten</summary><p data-stop-instructions style="white-space:pre-line"></p><p><button type="button" data-copy-isin>ISIN kopieren</button> <button type="button" data-copy-stop>Modell-Stopp kopieren</button> <button type="button" data-copy-draft>Bob-Handy-Entwurf kopieren · keine Order</button> <button type="button" data-copy-simulation>Offline-Simulation: Bob-Modellwerte kopieren</button></p><p data-copy-status role="status"></p></details>';
    stopPanel.insertAdjacentElement('afterend',panel);
    panel.addEventListener('click',async e=>{
     const key=e.target?.dataset?.copyIsin!==undefined?'isin':
       e.target?.dataset?.copyStop!==undefined?'stop':
+      e.target?.dataset?.copyDraft!==undefined?'draft':
       e.target?.dataset?.copySimulation!==undefined?'simulation':null;
     if(!key)return;
     const message=panel.querySelector('[data-copy-status]');
     // Recalculate at the moment of the deliberate clipboard click: stale
     // Gold/FX evidence must never be exported as a fresh Bob model.
-    const proposal=key==='simulation'?simulationDraft({...latestInfo,now:Date.now()}):null;
-    const value=key==='simulation'?(proposal?.available?proposal.raw:''):panel.dataset[key];
-    if(!value){message.textContent='Für die Simulation fehlt ein frischer berechneter EUR-Modellwert oder eine bestätigte ISIN/Stückzahl.';return;}
+    const draftRequested=key==='simulation'||key==='draft';
+    const proposal=draftRequested?simulationDraft({...latestInfo,now:Date.now()}):null;
+    const value=draftRequested?(proposal?.available?proposal.raw:''):panel.dataset[key];
+    if(!value){message.textContent='Frischer EUR-Modellstopp und eindeutige ISIN/Stückzahl fehlen. Keine Feldvorbereitung.';return;}
     try{
      if(!navigator?.clipboard?.writeText)throw Error('not-supported');
      await navigator.clipboard.writeText(value);
      message.textContent=key==='simulation'?
        'Modellvorschlag kopiert: nur für Bobs OFFLINE-Simulation, keine Broker-Freigabe.':
+       key==='draft'?
+       'Entwurf kopiert. In Bob Handy Position und Verkaufsmaske bestätigen, Felder anschließend selbst prüfen. Keine Order.':
        'Wert kopiert. Bei DEGIRO selbst einfügen und prüfen.';
     }catch(_){message.textContent='Kopieren nicht möglich; Wert bitte manuell prüfen.';}
    });
@@ -219,7 +223,9 @@
   panel.querySelector('[data-stop-instructions]').textContent=guide.available?
     guide.steps.join('\n')+'\n'+guide.note:guide.reason;
   panel.querySelector('[data-copy-stop]').disabled=!guide.available;
-  panel.querySelector('[data-copy-simulation]').disabled=!simulationDraft({product,stopGold,targetGold,spots,quote,now}).available;
+  const copyReady=simulationDraft({product,stopGold,targetGold,spots,quote,now}).available;
+  panel.querySelector('[data-copy-simulation]').disabled=!copyReady;
+  panel.querySelector('[data-copy-draft]').disabled=!copyReady;
   panel.querySelector('[data-copy-isin]').disabled=!product?.isin;
  }
  root.BobStopAssistant={selectQuote,compareQuoteSources,evaluate,simulationDraft,instructions,update};
