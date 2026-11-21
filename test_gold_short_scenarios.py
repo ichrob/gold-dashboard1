@@ -33,7 +33,7 @@ def source(spot=103.,at=SOURCE):
 
 class ShortGoldScenarioTests(unittest.TestCase):
     def test_exactly_three_strategy_families_with_prespecified_bounded_grid(self):
-        self.assertEqual(len(s.ARM_CONFIG),22)
+        self.assertEqual(len(s.ARM_CONFIG),24)
         self.assertEqual(set(s.FAMILIES),{"trend-reentry","breakout-retest","false-breakout"})
         self.assertEqual(s.LEVERS,(5,10,20))
         self.assertEqual(s.ARM_CONFIG["trend-reentry:adx20"]["adx"],20)
@@ -42,6 +42,18 @@ class ShortGoldScenarioTests(unittest.TestCase):
         self.assertEqual(s.ARM_CONFIG["trend-reentry:rr20"]["minRR"],2.)
         self.assertEqual(s.ARM_CONFIG["trend-reentry:stop10"]["noProgressMinutes"],10)
         self.assertEqual(s.ARM_CONFIG["trend-reentry:risk05"]["riskFraction"],.005)
+        # The 21 frozen strategies and existing bidirectional 5m account
+        # remain unchanged; only two new side-specific research arms are added.
+        self.assertEqual(sum(1 for key in s.ARM_CONFIG
+            if key.split(":")[1] in s.OPTIONS),21)
+        both=s.ARM_CONFIG["trend-reentry:closed5m-independent"]
+        for side in ("LONG","SHORT"):
+            separate=s.ARM_CONFIG["trend-reentry:closed5m-"+side.lower()]
+            self.assertEqual(separate["studySide"],side)
+            self.assertTrue(separate["independent5m"])
+            self.assertEqual({k:v for k,v in separate.items()
+                              if k not in ("option","studySide")},
+                             {k:v for k,v in both.items() if k!="option"})
 
     def test_mtf_adx_original_clock_and_spot_gates(self):
         cfg=s.ARM_CONFIG["trend-reentry:control"]
@@ -147,7 +159,7 @@ class ShortGoldScenarioTests(unittest.TestCase):
         brief=__import__("bob_diagnostics").short_regime_brief(report)
         names=[v["name"] for v in brief["variants"]]
         self.assertIn("trend-reentry:closed5m-independent",names)
-        self.assertEqual(brief["configurationsReported"],66)
+        self.assertEqual(brief["configurationsReported"],72)
 
     def test_target_room_is_not_replaced_by_an_idealized_rr(self):
         p=source()
@@ -217,14 +229,14 @@ class ShortGoldScenarioTests(unittest.TestCase):
             def execute(self,*args):return self
             def fetchone(self):return (state,)
         d=s.report(DB())
-        self.assertEqual(len(d["variants"]),22)
-        self.assertEqual(d["configurationsReported"],66)
+        self.assertEqual(len(d["variants"]),24)
+        self.assertEqual(d["configurationsReported"],72)
         self.assertFalse(d["realOrders"])
         self.assertFalse(d["productReturnVerified"])
         self.assertFalse(d["strategyWinnerConfirmed"])
         report=__import__("bob_diagnostics").short_regime_brief(d)
-        self.assertEqual(len(report["variants"]),22)
-        self.assertEqual(report["configurationsReported"],66)
+        self.assertEqual(len(report["variants"]),24)
+        self.assertEqual(report["configurationsReported"],72)
         self.assertNotIn("position",json.dumps(report))
         self.assertFalse(report["productReturnVerified"])
 

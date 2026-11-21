@@ -730,11 +730,14 @@ def short_regime_brief(control):
       'mtf-adx-not-confirmed','ema-20-50-not-confirmed','main-opposes-study',
       'stop-distance-invalid','target-room-insufficient',
       'case-cap-or-cooldown','daily-loss-limit','invalid-stop',
+      'study-side-mismatch',
       'unobserved-exit-gap'}
     exits={'stop','target','session-exit','time-limit','no-progress','main-opposite'}
-    names={f+':'+opt for f in families for opt in options}
+    directional={'trend-reentry:closed5m-long':'LONG',
+                 'trend-reentry:closed5m-short':'SHORT'}
+    names={f+':'+opt for f in families for opt in options}|set(directional)
     arms=[]
-    for row in (control.get('variants') or [])[:22]:
+    for row in (control.get('variants') or [])[:24]:
         if not isinstance(row,dict) or row.get('name') not in names:
             continue
         ls=row.get('leverageScenarios')
@@ -744,7 +747,12 @@ def short_regime_brief(control):
         curr=ten.get('equityEur')
         curr=curr if type(curr) in (int,float) and math.isfinite(curr) and 0<=curr<=1e9 else None
         reasons=row.get('exitCounts')
+        started_at=row.get('studyStartedAt')
+        started_at=(started_at if type(started_at) in (int,float) and
+            math.isfinite(started_at) and started_at>0 else None)
         arms.append(dict(name=row['name'],family=row.get('family') if row.get('family') in families else None,
+            studySide=directional.get(row['name']),
+            studyStartedAt=started_at if row['name'] in directional else None,
             option=row.get('option') if row.get('option') in options else None,
             started=count('started'),closed=count('closed'),inconclusive=count('inconclusive'),
             open=row.get('open') is True,
@@ -760,8 +768,8 @@ def short_regime_brief(control):
     at=control.get('checkedAt')
     return dict(status=control['status'],readOnly=True,realOrders=False,
         checkedAt=at if type(at) in (int,float) and math.isfinite(at) else None,
-        configurationsReported=66 if len(arms)==22 else
-        63 if len(arms)==21 else None,
+        configurationsReported=72 if len(arms)==24 else
+        66 if len(arms)==22 else 63 if len(arms)==21 else None,
         variants=arms,productReturnVerified=False,
         strategyWinnerConfirmed=False,modelCostsOnly=True,
         scope='small-original-spot-proxy-brief-no-product-fills')
