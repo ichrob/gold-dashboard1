@@ -303,7 +303,22 @@ class AndroidStableReleaseTests(unittest.TestCase):
                       'seek.kind==MorningReadPolicy.Kind.COLLECT','listTopSeekSteps>4',
                       'ACTION_SCROLL_BACKWARD','!n.isEditable','!n.isPassword']:
             self.assertIn(guard,seek)
-        self.assertEqual(service.count('dispatchGesture('), 1)
+        # The only two dispatchGesture call sites are the already verified
+        # Gold product-search tap and the short, once-per-run footer reframe.
+        # Reject any extra gesture or a footer swipe lacking source guards.
+        self.assertEqual(service.count('dispatchGesture('), 2)
+        footer = service.split('private fun captureMorningList(',1)[1].split(
+            'private fun checkpoint()',1)[0]
+        self.assertIn('footerFirst && listImages.length()==3 && !listGapReframeAttempted',footer)
+        self.assertIn('listGapReframeAttempted=true',footer)
+        self.assertIn('root.windowId==listWindowId',footer)
+        self.assertIn('root.packageName?.toString()==ProductScreenEvidence.PACKAGE',footer)
+        self.assertIn('!d.containsInput && !d.sensitive',footer)
+        self.assertIn('distance=minOf(210,(bottom-top)/3)',footer)
+        self.assertIn('frame.bottom-220',footer)
+        self.assertIn('frame.left+frame.width()/4',footer)
+        self.assertIn('distance>=140',footer)
+        self.assertEqual(footer.count('dispatchGesture('),1)
         tap = service.split('private fun tapRecognizedSearch(', 1)[1].split('private fun submitSearch(', 1)[0]
         for guard in ['PhoneRemote.active()', 'ProductReadRequest.active(', 'isKeyguardLocked',
                       'MorningReadPolicy.discoverGold(descriptions)', 'MorningReadPolicy.Kind.SEARCH',
