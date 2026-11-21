@@ -870,7 +870,6 @@ internal object MorningReadPolicy {
         if(inputs.isEmpty() && nodes.any { n ->
             canClick(n) && (search(n) || rowSearch(n))
         })return null
-        if(inputs.size>1)return null
         fun below(child:Int,ancestor:Int):Boolean {
             var at=nodes[child].parent;var hops=0
             while(at in nodes.indices && hops++<nodes.size) {
@@ -879,12 +878,25 @@ internal object MorningReadPolicy {
             }
             return false
         }
-        if(inputs.size==1) {
-            val index=inputs.single()
+        if(inputs.isNotEmpty()) {
+            // Samsung may expose the SAME Gold search field as two nested,
+            // equally labelled editable WebView nodes. Only the unique
+            // deepest descendant can be acted on. Two unrelated search fields
+            // are ambiguous: WAIT without touching either; any other editable
+            // field (price, amount, unknown input) remains a hard BLOCK.
+            if(inputs.any { i ->
+                val n=nodes[i]
+                !n.enabled || n.password || n.sensitive ||
+                !isSearchInput(n.id,n.description,n.hint) ||
+                n.text !in setOf("Gold","",target)
+            })return null
+            val unique=innermost(nodes,inputs).singleOrNull()
+                ?: return Action(Kind.WAIT,code="GOLD_SEARCH_REBUILDING")
+            val index=unique
             val input=nodes[index]
-            if(!input.enabled || input.password || input.sensitive ||
-                !isSearchInput(input.id,input.description,input.hint) ||
-                input.text !in setOf("Gold","",target))return null
+            if(inputs.any { i -> i!=index &&
+                (!below(index,i) || nodes[i].text!=input.text) })
+                return Action(Kind.WAIT,code="GOLD_SEARCH_REBUILDING")
             // Never focus a search field nested in an order launcher, nor
             // treat an order node nested in this input as a search target.
             val markers=nodes.indices.filter { i ->
@@ -901,7 +913,13 @@ internal object MorningReadPolicy {
                 // Search already contains this exact ISIN. Never retype it
                 // or trust an aggregate K/V row as a product click. Open
                 // only the title independently accepted by resultTapIndex.
-                val title=resultTapIndex(nodes,target)
+                // Duplicate ancestor inputs are proven identical and can
+                // be neutralized for the existing title-only verification.
+                // Indices remain unchanged; no synthetic click target.
+                val clean=nodes.mapIndexed { i,n ->
+                    if(i in inputs && i!=index) Node("") else n
+                }
+                val title=resultTapIndex(clean,target)
                 return if(title!=null)
                     Action(Kind.RESULT,title,code="GOLD_READONLY_RESULT_RECOVERED")
                 else Action(Kind.WAIT,code="RESULT_MISSING")
