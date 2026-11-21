@@ -54,6 +54,19 @@ assert.equal(combined.auditQuote({isin:ids[5],sourceObservations:[{
 assert.equal(combined.summary(items,status).accountSynced,false);
 const factorIsin='DE000PU0D101';
 assert.equal(combined.validIsin(factorIsin),true);
+// Corrected owner request: ten source entries include one factor, leaving
+// NINE active Gold KO candidates. Do not invent a replacement tenth KO.
+const sourceTen=[...ids.slice(0,9).map(isin=>({isin,name:'Gold Turbo '+isin})),
+ {isin:factorIsin,name:'BNP Faktor 15'}];
+assert.equal(sourceTen.length,10);
+const activeNine=combined.combine(null,sourceTen,
+ {status:'ok',items:sourceTen.map(p=>({isin:p.isin,
+   state:p.isin===factorIsin?'excluded-factor':'analysis-evidence-complete'}))},
+ [],Date.now());
+assert.equal(activeNine.length,9,'Ten original entries minus one excluded factor = nine active KO products');
+assert(activeNine.every(x=>x.isin!==factorIsin));
+assert(activeNine.every(x=>x.rankingEligible===false),'A display-count change must not grant broker execution');
+
 assert.equal(combined.factorExcluded({isin:factorIsin,state:'excluded-factor'}),true);
 const hiddenFactor=combined.combine(null,[{isin:factorIsin,name:'BNP Faktor 15',direction:'LONG'}],
  {status:'ok',items:[{isin:factorIsin,state:'excluded-factor',missing:['factor']},
