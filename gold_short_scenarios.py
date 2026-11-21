@@ -51,7 +51,17 @@ ARM_CONFIG["trend-reentry:closed5m-independent"]={
     "option":"closed5m-independent",
     "independent5m":True,
 }
-NOTE=("Nur 22 prospektive Original-Gold-Spot-Schattenkonten zu je 1.000 EUR "
+# A matched, forward-only pair isolates the results of the two directions.
+# Both use the *same* closed-5m, 15m/1h, risk and exit gates. The original
+# independent both-direction model and 21 older study arms stay unchanged.
+for _side in ("LONG", "SHORT"):
+    _option = "closed5m-" + _side.lower()
+    ARM_CONFIG["trend-reentry:" + _option] = {
+        **ARM_CONFIG["trend-reentry:closed5m-independent"],
+        "option": _option,
+        "studySide": _side,
+    }
+NOTE=("Nur 24 prospektive Original-Gold-Spot-Schattenkonten zu je 1.000 EUR "
       "Modellreferenzkapital und drei rechnerischen Hebelszenarien; kein Echtgeld "
       "oder KO-/DEGIRO-Nettoertrag. Keine rückwirkenden Fills, unbekannte "
       "Quellenlücken bleiben unbepreist. Beispielkosten: 0,6 % auf "
@@ -164,6 +174,10 @@ def signals(rows,now):
 def gate(sig,market,price,now,cfg):
     if sig is None:
         return "no-setup"
+    # This *only* restricts the two additional matched research arms. It
+    # never changes the original bidirectional or legacy signal selector.
+    if cfg.get("studySide") in ("LONG", "SHORT") and sig.get("direction") != cfg["studySide"]:
+        return "study-side-mismatch"
     if (not isinstance(market,dict) or market.get("ready") is not True
             or market.get("priceFresh") is not True):
         return "market-analysis-not-ready"
@@ -297,7 +311,14 @@ def advance(old,bundle,market,now):
                             checkedAt=now,sourceAt=price.get("at"),
                             originalSpotFresh=price.get("available") is True)
     for key,cfg in ARM_CONFIG.items():
-        arm=state["arms"].setdefault(key,_arm())
+        if key not in state["arms"]:
+            # Existing saved reports are extended with NEW, empty ledgers,
+            # never cloned or backfilled from either older study account.
+            fresh_arm=_arm()
+            if cfg.get("studySide") in ("LONG", "SHORT"):
+                fresh_arm["studyStartedAt"]=now
+            state["arms"][key]=fresh_arm
+        arm=state["arms"][key]
         p=arm.get("position")
         if p is not None:
             if (not price.get("available") or not num(price.get("at"))
@@ -390,6 +411,8 @@ def report(conn):
     for name,cfg in ARM_CONFIG.items():
         a=state["arms"].get(name) or _arm()
         out.append(dict(name=name,family=cfg["family"],option=cfg["option"],
+            studySide=cfg.get("studySide"),
+            studyStartedAt=a.get("studyStartedAt") if cfg.get("studySide") else None,
             adx=cfg["adx"],ageMinutes=cfg["ageMinutes"],
             driftAtr=cfg["driftAtr"],minRR=cfg["minRR"],
             noProgressMinutes=cfg["noProgressMinutes"],
