@@ -472,6 +472,67 @@ if(complementImage(phone,[row(7)+'\n'+row(8),row(7)+'\n'+row(8)])!==null)
             spawn.assert_called_once()
 
 
+    def test_deferred_batch_uses_limited_recovery_reserve_not_normal(self):
+        import functools
+        # A single or untrusted deferral cannot loosen the normal admission.
+        self.assertIs(worker.ocr_runner({}),worker.guarded_ocr_run)
+        for invalid in (True,-1,'2',None,1):
+            self.assertIs(worker.ocr_runner({'_memoryDeferrals':invalid}),
+                          worker.guarded_ocr_run)
+        runner=worker.ocr_runner({'_memoryDeferrals':2})
+        self.assertIsInstance(runner,functools.partial)
+        self.assertIs(runner.func,worker.guarded_ocr_run)
+        self.assertEqual(runner.keywords,{'memory_recovery':True})
+        self.assertEqual(worker.ocr_runner({'_memoryDeferrals':24}).keywords,
+                         {'memory_recovery':True})
+        status=worker.status()
+        self.assertEqual(status['ocrStartReserveMiB'],196)
+        self.assertEqual(status['ocrRecoveryStartReserveMiB'],180)
+        self.assertEqual(status['ocrRecoveryAfterDeferrals'],2)
+
+    def test_recovery_admits_bounded_spare_ram_but_keeps_absolute_kill(self):
+        # Normal 196-MiB reserve at 324 MiB must still defer.
+        with patch.object(worker,'container_memory_bytes',return_value=324*1024*1024), \
+             patch('memory_watch.release_free_pages'),patch('subprocess.Popen') as spawn:
+            with self.assertRaises(worker.OcrMemoryDeferred):
+                worker.guarded_ocr_run(['ocr'],input='[]',text=True,
+                    capture_output=True,timeout=35,check=True,env={},close_fds=True)
+            spawn.assert_not_called()
+        # The historical OCR child added ~151 MiB; after 2 deferrals, the
+        # measured 180-MiB reserve provides 29 MiB to the 505-MiB guard.
+        with patch.object(worker,'container_memory_bytes',return_value=324*1024*1024), \
+             patch('memory_watch.release_free_pages'),patch('subprocess.Popen') as spawn, \
+             patch.object(worker,'wait_ocr',return_value=0):
+            result=worker.guarded_ocr_run(['ocr'],input='[]',text=True,
+                capture_output=True,timeout=35,check=True,env={},close_fds=True,
+                memory_recovery=True)
+            self.assertEqual(result.returncode,0)
+            spawn.assert_called_once()
+        self.assertEqual(worker.status()['lastOcrAdmissionReserveMiB'],180)
+        self.assertTrue(worker.status()['lastOcrAdmissionRecovery'])
+        # Never start at 325 MiB or above, with missing cgroup counters,
+        # or after a recovered measured peak breaches the 505-MiB guard.
+        for usage in (325,400,505,None):
+            used=usage*1024*1024 if usage is not None else None
+            with patch.object(worker,'container_memory_bytes',return_value=used), \
+                 patch('memory_watch.release_free_pages'),patch('subprocess.Popen') as spawn:
+                with self.assertRaises(worker.OcrMemoryDeferred):
+                    worker.guarded_ocr_run(['ocr'],input='[]',text=True,
+                        capture_output=True,timeout=35,check=True,env={},close_fds=True,
+                        memory_recovery=True)
+                spawn.assert_not_called()
+        class Child:
+            args=['ocr']
+            killed=False
+            def poll(self):return None
+            def kill(self):self.killed=True
+            def wait(self,timeout=None):return -9
+        child=Child()
+        with self.assertRaises(MemoryError):
+            worker.wait_ocr(child,memory_reader=lambda:worker.OCR_CONTAINER_LIMIT,
+                            clock=lambda:0,sleep=lambda _:None)
+        self.assertTrue(child.killed)
+
     def test_ocr_can_cross_old_ceiling_but_is_killed_at_505(self):
         class Child:
             args=['ocr'];killed=False
