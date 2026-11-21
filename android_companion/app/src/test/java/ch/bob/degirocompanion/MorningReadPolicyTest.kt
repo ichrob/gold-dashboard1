@@ -1197,6 +1197,45 @@ class MorningReadPolicyTest {
                 target,keyboardReady=true,resultOpened=false).kind)
     }
 
+    @Test fun nestedDuplicateSearchEditTextsAreOneSafeGoldSearchNotAnOrder() {
+        val target="DE000FD0S0G4"
+        val outer=MorningReadPolicy.Node("Gold",id="search-input",
+            editable=true,hint="Mit Namen, ISIN oder Symbol suchen")
+        val inner=outer.copy(parent=0,focused=false)
+        val preview=listOf(
+            MorningReadPolicy.Node("Hebelprodukte",selected=true),
+            MorningReadPolicy.Node("Top Ergebnisse"),
+            MorningReadPolicy.Node("Order platzieren",clickable=true,
+                row="Order platzieren"))
+        val nested=listOf(outer,inner)+preview
+        val focus=MorningReadPolicy.localResearchDecision(
+            nested,target,keyboardReady=false,resultOpened=false)
+        assertEquals(MorningReadPolicy.Kind.FOCUS,focus.kind)
+        assertEquals(1,focus.index)
+        val query=MorningReadPolicy.localResearchDecision(
+            nested.mapIndexed { i,n -> if(i==1)n.copy(focused=true) else n },
+            target,keyboardReady=true,resultOpened=false)
+        assertEquals(MorningReadPolicy.Kind.QUERY,query.kind)
+        assertEquals(1,query.index)
+        // Sibling search nodes are never interchangeable or guessed.
+        val siblings=listOf(outer,inner.copy(parent=-1))+preview
+        val wait=MorningReadPolicy.localResearchDecision(
+            siblings,target,keyboardReady=false,resultOpened=false)
+        assertEquals(MorningReadPolicy.Kind.WAIT,wait.kind)
+        assertEquals("GOLD_SEARCH_REBUILDING",wait.code)
+        // Neither quantity inputs nor real confirmation pages are ignored.
+        for(unsafe in listOf(
+            MorningReadPolicy.Node("",editable=true,hint="Betrag"),
+            MorningReadPolicy.Node("Limitpreis"),
+            MorningReadPolicy.Node("Order bestätigen"),
+            MorningReadPolicy.Node("",password=true)
+        )){
+            assertEquals(MorningReadPolicy.Kind.BLOCK,
+                MorningReadPolicy.localResearchDecision(
+                    nested+unsafe,target,keyboardReady=false,resultOpened=false).kind)
+        }
+    }
+
     @Test fun nineRowResearchOnSamsungReusesTheAlreadyWorkingGoldField() {
         val target="DE000FD0S0G4"
         val search=MorningReadPolicy.Node("Gold",id="bob:search_input",
