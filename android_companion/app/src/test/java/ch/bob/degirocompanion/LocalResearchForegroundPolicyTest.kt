@@ -19,6 +19,21 @@ class LocalResearchForegroundPolicyTest {
         assertEquals(1500L,LocalResearchForegroundPolicy.POLL_MS)
     }
 
+    @Test fun virtualizedGoldSearchMayWaitPassivelyButCannotExtendIndefinitely() {
+        fun allow(elapsed:Long, active:Boolean=true, unlocked:Boolean=true,
+                  broker:Boolean=true, readOnly:Boolean=true) =
+            LocalResearchForegroundPolicy.mayWaitForVisibleSearch(
+                elapsed,active,unlocked,broker,readOnly)
+        assertTrue(allow(4_000L))
+        assertTrue(allow(LocalResearchForegroundPolicy.MAX_VISIBLE_SEARCH_WAIT_MS-1))
+        assertFalse(allow(LocalResearchForegroundPolicy.MAX_VISIBLE_SEARCH_WAIT_MS))
+        assertFalse(allow(-1))
+        assertFalse(allow(10_000L,active=false))
+        assertFalse(allow(10_000L,unlocked=false))
+        assertFalse(allow(10_000L,broker=false))
+        assertFalse(allow(10_000L,readOnly=false))
+    }
+
     @Test fun waitNeverAuthorizesALockedExpiredOrAlreadyVisibleBroker() {
         assertFalse(allow(1000,active=false))
         assertFalse(allow(1000,unlocked=false))
