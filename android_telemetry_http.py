@@ -69,7 +69,25 @@ def route(h, method, path, forward):
         if remote:request={'action':'workflow-plan' if workflow else 'termux-exchange' if termux else 'trade-status' if trade_status else 'list-upload' if list_upload else 'list-status' if list_status else 'list-details' if list_details else 'exchange','token':credential[7:],'value':value}
         send(h,200,forward(request,remote=True) if remote else forward(request))
     except HTTPError as exc:
-        send(h,exc.code if exc.code in (400,401,403,429) else 503,{'error':'Diagnostic request rejected'})
-    except (ValueError,UnicodeError):send(h,400,{'error':'Invalid diagnostic request'})
+        if list_upload and exc.code==400:
+            # The private push service returns only a bounded errorCode. Do
+            # not relay its raw response/error text, private screenshots,
+            # identifiers or device credentials to the handset/log.
+            code='LIST_REJECTED'
+            try:
+                value=json.loads(exc.read(1024))
+                candidate=value.get('errorCode') if isinstance(value,dict) else None
+                if candidate in __import__('android_list').UPLOAD_ERROR_CODES:
+                    code=candidate
+            except (ValueError,UnicodeError,AttributeError,TypeError):
+                pass
+            send(h,400,{'error':'List upload rejected','errorCode':code})
+        else:
+            send(h,exc.code if exc.code in (400,401,403,429) else 503,
+                 {'error':'Diagnostic request rejected'})
+    except (ValueError,UnicodeError):
+        if list_upload:
+            send(h,400,{'error':'List upload rejected','errorCode':'LIST_SCHEMA'})
+        else:send(h,400,{'error':'Invalid diagnostic request'})
     except Exception:send(h,503,{'error':'Diagnostics temporarily unavailable'})
     return True

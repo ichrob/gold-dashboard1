@@ -1348,6 +1348,7 @@ class Handler(BaseHTTPRequestHandler):
                 supplied=self.headers.get('X-Bob-Push-Token','')
                 if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied,PUSH_SERVICE_TOKEN):
                     send_json(self,401,{'error':'Unauthorized'});return
+                body=None
                 try:
                     completed_access = False
                     with db() as conn:
@@ -1374,6 +1375,16 @@ class Handler(BaseHTTPRequestHandler):
                         threading.Thread(target=send_phone_access_completion,
                                          daemon=True, name='bob-handset-access-finished').start()
                 except PermissionError:send_json(self,401,{'error':'Device not paired or revoked'})
+                except ValueError as exc:
+                    if path == '/android-remote' and isinstance(body,dict) and body.get('action')=='list-upload':
+                        # Only a fixed anonymous reason reaches logs and phone.
+                        # Do not log original screenshots, ISINs, OCR text,
+                        # credentials, input exception strings or batch IDs.
+                        code=__import__('android_list').rejection_code(exc)
+                        print('BOB_ANDROID_LIST_REJECT code='+code,flush=True)
+                        send_json(self,400,{'error':'List upload rejected','errorCode':code})
+                    else:
+                        raise
                 return
             if path == '/android-observations':
                 supplied=self.headers.get('X-Bob-Push-Token','')

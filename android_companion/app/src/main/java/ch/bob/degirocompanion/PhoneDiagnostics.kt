@@ -26,6 +26,14 @@ import java.net.URL
 
 /** Paired-device transport. Diagnostic reports exclude screen text; workflowPlan sends only explicitly reviewed context. */
 internal object PhoneDiagnostics {
+    /** Only one of the fixed public-safe server refusal codes, never any
+     * screenshot content, ISIN, credential, URL or original exception text. */
+    class ListUploadRejected(val reasonCode:String):IllegalStateException("Gold list upload rejected")
+    private val listRejectionCodes=setOf(
+        "LIST_SCHEMA","CAPTURE_TIME","IMAGE_FORMAT","IMAGE_SIZE",
+        "APP_TEXT_INVALID","LOCAL_OCR_INVALID","DUPLICATE_IMAGE",
+        "BATCH_CONFLICT","RATE_LIMIT","LIST_REJECTED"
+    )
     private const val BASE="https://bob-private-scanner.onrender.com"
     private const val ALIAS="bob_diagnostic_key_v1"
     private const val PERIODIC=8201
@@ -85,6 +93,25 @@ internal object PhoneDiagnostics {
             conn.setFixedLengthStreamingMode(bytes.size)
             check(paired(c) && token(c)==credential)
             conn.outputStream.use { it.write(bytes) }
+            if(list && conn.responseCode==400) {
+                // The server reason is a fixed anonymous code. Never return
+                // or store its raw response body or HTTP exception text.
+                val code=runCatching {
+                    val stream=conn.errorStream ?: error("No refusal code")
+                    val out=java.io.ByteArrayOutputStream()
+                    stream.use { input ->
+                        val buffer=ByteArray(256)
+                        while(out.size()<1024) {
+                            val n=input.read(buffer,0,minOf(buffer.size,1024-out.size()))
+                            if(n<0)break
+                            out.write(buffer,0,n)
+                        }
+                    }
+                    JSONObject(String(out.toByteArray(),Charsets.UTF_8))
+                        .optString("errorCode")
+                }.getOrNull().takeIf { it in listRejectionCodes } ?: "LIST_REJECTED"
+                throw ListUploadRejected(code)
+            }
             check(conn.responseCode==200)
             val text=conn.inputStream.use { stream ->
                 val out=java.io.ByteArrayOutputStream();val buffer=ByteArray(1024)

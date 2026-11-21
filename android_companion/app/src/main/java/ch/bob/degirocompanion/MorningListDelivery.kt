@@ -137,6 +137,20 @@ internal object MorningListDelivery {
                 }
                 handler.post {
                     if(id!=generation)return@post
+                    val refused=result.exceptionOrNull() as? PhoneDiagnostics.ListUploadRejected
+                    if(refused!=null) {
+                        // A terminal 400 is NOT a network timeout; endlessly
+                        // re-uploading the same four images cannot fix it.
+                        // Preserve the untouched atomic on-device originals
+                        // for the next explicitly owner-started retry.
+                        waiting=false
+                        status(c,"Goldliste vom Server abgelehnt ("+refused.reasonCode+
+                            "). Alle Originalbilder bleiben gespeichert; keine " +
+                            "Produktfreigabe. Neuer Start kann sie erneut prüfen.")
+                        PhoneDiagnostics.queue(c)
+                        PhoneRemote.stop(c,"LIST_UPLOAD_FAILED")
+                        return@post
+                    }
                     val response=result.getOrNull();val receipt=response?.optJSONObject("import")
                     if(response?.optString("batchId")==batch && receipt?.optString("stage")=="synced" && receipt.optInt("count")==10) {
                         waiting=false;file(c).delete()

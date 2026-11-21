@@ -179,6 +179,46 @@ def canonical_ocr_identity(raw):
     return candidate if valid_isin(candidate) else None
 
 
+# Only fixed anonymous machine codes leave the trusted upload boundary.
+# Never log or echo screenshot data, OCR text, product identity or credentials.
+UPLOAD_ERROR_CODES=frozenset((
+    'LIST_SCHEMA', 'CAPTURE_TIME', 'IMAGE_FORMAT', 'IMAGE_SIZE',
+    'APP_TEXT_INVALID', 'LOCAL_OCR_INVALID', 'DUPLICATE_IMAGE',
+    'BATCH_CONFLICT', 'RATE_LIMIT', 'LIST_REJECTED',
+))
+def rejection_code(error):
+    reason=str(error)
+    if reason in ('Invalid list batch','Invalid list identity','One to four images required',
+                  'Invalid image'):
+        return 'LIST_SCHEMA'
+    if reason=='Invalid capture time':return 'CAPTURE_TIME'
+    if reason in ('PNG required','Invalid dimensions'):return 'IMAGE_FORMAT'
+    if reason=='Image too large':return 'IMAGE_SIZE'
+    if reason in ('Invalid app text','Invalid app rows','Invalid app row',
+                  'App text changed during capture'):
+        return 'APP_TEXT_INVALID'
+    if reason in ('Invalid local OCR','Invalid local OCR identities',
+                  'Invalid local OCR rows','Invalid local OCR text',
+                  'OCR row outside permitted product layout','OCR product identity mismatch'):
+        return 'LOCAL_OCR_INVALID'
+    if reason=='Duplicate screenshots':return 'DUPLICATE_IMAGE'
+    if reason=='Conflicting batch':return 'BATCH_CONFLICT'
+    if reason=='Capture rate limit':return 'RATE_LIMIT'
+    return 'LIST_REJECTED'
+
+def non_evidentiary_footer_indices(images):
+    """The fourth real cropped footer photo may be byte-identical to the third.
+    It is retained for audit but NEVER counts as another image or OCR source.
+    Called only for a server-validated, owner-session-bound four-image batch.
+    """
+    if len(images)!=4:return set()
+    try:
+        third=base64.b64decode(images[2]['png'],validate=True)
+        fourth=base64.b64decode(images[3]['png'],validate=True)
+    except (TypeError,ValueError,KeyError):
+        return set()
+    return {3} if hashlib.sha256(third).digest()==hashlib.sha256(fourth).digest() else set()
+
 def validate(value, now):
     if not isinstance(value,dict) or set(value)!={'batchId','sessionId','images'}:
         raise ValueError('Invalid list batch')
@@ -186,8 +226,8 @@ def validate(value, now):
         raise ValueError('Invalid list identity')
     images=value['images']
     if not isinstance(images,list) or not 1<=len(images)<=4:raise ValueError('One to four images required')
-    seen=set();previous=0
-    for image in images:
+    seen=set();previous=0;previous_digest=None
+    for index,image in enumerate(images):
         if not isinstance(image,dict) or set(image) not in (
                 {'at','png'}, {'at','png','appText'}, {'at','png','localOcr'}):
             raise ValueError('Invalid image')
@@ -227,8 +267,11 @@ def validate(value, now):
                     found=[canonical_ocr_identity(m.group()) for m in OCR_IDENTITY_TOKEN.finditer(row)]
                     if found!=[ids[index]]:
                         raise ValueError('OCR product identity mismatch')
-        stamp=datetime.fromisoformat(image['at'].replace('Z','+00:00'))
+        try:stamp=datetime.fromisoformat(image['at'].replace('Z','+00:00'))
+        except (ValueError,TypeError,KeyError,AttributeError):
+            raise ValueError('Invalid capture time') from None
         if stamp.tzinfo is None or not now-86400<=stamp.timestamp()<=now+5 or stamp.timestamp()<previous:raise ValueError('Invalid capture time')
+        prior_stamp=previous
         previous=stamp.timestamp()
         if not isinstance(image['png'],str) or len(image['png'])>2000000:raise ValueError('Image too large')
         raw=base64.b64decode(image['png'],validate=True)
@@ -236,8 +279,16 @@ def validate(value, now):
         w,h=struct.unpack('>II',raw[16:24])
         if not 200<=w<=5000 or not 200<=h<=5000 or w*h>16000000:raise ValueError('Invalid dimensions')
         digest=hashlib.sha256(raw).hexdigest()
-        if digest in seen:raise ValueError('Duplicate screenshots')
-        seen.add(digest)
+        if digest in seen:
+            # The owner-started fourth photograph can be a literal repeat of
+            # the same verified Gold footer (no scrolling or order gesture).
+            # Accept ONLY this final adjacent repeat and only at a strictly
+            # later capture time; the recognition worker must discard every
+            # evidentiary contribution from the repeated photo.
+            if not (index==3 and digest==previous_digest and previous>prior_stamp):
+                raise ValueError('Duplicate screenshots')
+        else:seen.add(digest)
+        previous_digest=digest
     return value
 
 def init(conn):

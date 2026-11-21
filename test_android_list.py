@@ -118,6 +118,75 @@ class ListTests(unittest.TestCase):
         for mutate in [lambda x:x['images'].clear(),lambda x:x['images'].extend(x['images']*2),lambda x:x['images'][1].update(png=x['images'][0]['png']),lambda x:x['images'][0].update(at='2020-01-01T00:00:00Z'),lambda x:x['images'][0].update(png='bad'),lambda x:x.update(sessionId='bad')]:
             x=batch();mutate(x)
             with self.assertRaises((ValueError,TypeError)):images.validate(x,NOW)
+    def test_only_adjacent_fourth_footer_repeat_is_non_evidentiary(self):
+        value=batch()
+        third=copy.deepcopy(value['images'][1])
+        third['at']=datetime.fromtimestamp(NOW-8,timezone.utc).isoformat()
+        third['png']=base64.b64encode(base64.b64decode(third['png'])+b'3').decode()
+        fourth=copy.deepcopy(third)
+        fourth['at']=datetime.fromtimestamp(NOW-7,timezone.utc).isoformat()
+        # Even a conflicting extra appText never authorizes more evidence.
+        fourth['appText']={'before':['new tenth not proven'],
+                           'after':['new tenth not proven']}
+        value['images'] += [third,fourth]
+        self.assertIs(images.validate(value,NOW),value)
+        self.assertEqual(images.non_evidentiary_footer_indices(value['images']),{3})
+        self.assertEqual(len(value['images']),4)
+        # Earlier duplicate screenshots and final copies of a NON-adjacent
+        # image remain rejected, as do replayed/unchanged capture timestamps.
+        for mutate in (
+            lambda v:v['images'][3].update(png=v['images'][0]['png']),
+            lambda v:v['images'][2].update(png=v['images'][1]['png']),
+            lambda v:v['images'][3].update(at=v['images'][2]['at']),
+            lambda v:v['images'][3].update(at='2020-01-01T00:00:00Z')
+        ):
+            bad=copy.deepcopy(value);mutate(bad)
+            with self.assertRaises(ValueError):
+                images.validate(bad,NOW)
+        two=batch();two['images'][1]['png']=two['images'][0]['png']
+        with self.assertRaisesRegex(ValueError,'Duplicate screenshots'):
+            images.validate(two,NOW)
+
+    def test_upload_rejection_codes_are_fixed_not_raw_error_text(self):
+        self.assertEqual(images.rejection_code(ValueError('Duplicate screenshots')),
+                         'DUPLICATE_IMAGE')
+        self.assertEqual(images.rejection_code(ValueError('Invalid capture time')),
+                         'CAPTURE_TIME')
+        self.assertEqual(images.rejection_code(ValueError('Conflicting batch')),
+                         'BATCH_CONFLICT')
+        self.assertEqual(images.rejection_code(ValueError('private ISIN and password')),
+                         'LIST_REJECTED')
+        self.assertTrue(set((
+            'DUPLICATE_IMAGE','CAPTURE_TIME','BATCH_CONFLICT','LIST_REJECTED'
+        )).issubset(images.UPLOAD_ERROR_CODES))
+
+    def test_server_upload_error_passes_only_allowlisted_technical_code(self):
+        import io,json
+        from urllib.error import HTTPError
+        headers={'Authorization':'Bearer '+'a'*64}
+        def rejected(code):
+            def forward(*_args,**_kwargs):
+                body=json.dumps({'errorCode':code,'error':'private account contents'}).encode()
+                raise HTTPError('https://private.invalid/android-remote',400,
+                                'bad request',None,io.BytesIO(body))
+            return forward
+        for remote_code,expected in (
+            ('DUPLICATE_IMAGE','DUPLICATE_IMAGE'),
+            ('CAPTURE_TIME','CAPTURE_TIME'),
+            ('private account contents','LIST_REJECTED')):
+            h=Handler(batch(),headers=headers)
+            http.route(h,'POST','/api/android-list/upload',rejected(remote_code))
+            self.assertEqual(h.code,400)
+            self.assertEqual(json.loads(h.wfile.getvalue())['errorCode'],expected)
+            self.assertNotIn(b'private account contents',h.wfile.getvalue())
+        # A malformed request never leaks raw data and never reaches backend.
+        h=Handler(batch(),headers={'Authorization':'Bearer '+'a'*64,
+                                  'Content-Type':'application/octet-stream'})
+        http.route(h,'POST','/api/android-list/upload',
+                   lambda *_:self.fail('Invalid device request forwarded'))
+        self.assertEqual(h.code,400)
+        self.assertEqual(json.loads(h.wfile.getvalue())['errorCode'],'LIST_SCHEMA')
+
     def test_browser_cannot_upload_and_device_cannot_read(self):
         h=Handler(batch(),auth=True)
         http.route(h,'POST','/api/android-list/upload',lambda *_:self.fail('cookie upload'))

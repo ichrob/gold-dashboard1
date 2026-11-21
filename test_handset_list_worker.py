@@ -5,6 +5,54 @@ from unittest.mock import patch
 import handset_list_worker as worker
 
 class WorkerTests(unittest.TestCase):
+    def test_repeated_fourth_footer_never_becomes_a_fourth_ocr_source(self):
+        from types import SimpleNamespace
+        from test_android_list import batch,NOW
+        from datetime import datetime,timezone
+        import base64,copy,android_list
+        value=batch()
+        third=copy.deepcopy(value['images'][1])
+        third['at']=datetime.fromtimestamp(NOW-8,timezone.utc).isoformat()
+        third['png']=base64.b64encode(base64.b64decode(third['png'])+b'footer').decode()
+        fourth=copy.deepcopy(third)
+        fourth['at']=datetime.fromtimestamp(NOW-7,timezone.utc).isoformat()
+        # Malicious or stale UI annotations on the SAME footer pixels must
+        # never invent a tenth issuer row.
+        fourth['appText']={'before':['forged tenth row'],
+                           'after':['forged tenth row']}
+        value['images'] += [third,fourth]
+        for image in value['images'][:3]:
+            image['appText']={'before':['existing original'],
+                              'after':['existing original']}
+        self.assertEqual(android_list.non_evidentiary_footer_indices(value['images']),{3})
+        self.assertEqual(android_list.validate(value,NOW),value)
+        observed=[]
+        def fake_run(*args,**kwargs):
+            data=json.loads(kwargs['input'])
+            observed.append(data)
+            if data.get('mode')=='prepare-app':
+                self.assertIsNone(data['images'][3]['appText'])
+                return SimpleNamespace(stdout=json.dumps([
+                    ['real pass a','real pass b'] for _ in range(3)
+                ]+[ ['forged pass','forged pass'] ]))
+            # The verifier can only receive three original optical sources:
+            # the fourth is exactly blank, not a copy of row-3 annotations.
+            self.assertEqual(data['images'][3],['',''])
+            self.assertFalse(data['appSources'][3])
+            self.assertFalse(data['localSources'][3])
+            return SimpleNamespace(stdout=json.dumps({
+                'items':[{'isin':str(i)} for i in range(10)],
+                'evidence':{'products':[]}
+            }))
+        with patch('evaluator_runtime.run',side_effect=fake_run) as run:
+            result=worker.process({'images':value['images']},
+                                  '2026-11-21T09:40:00Z')
+        self.assertEqual(run.call_count,2)
+        self.assertEqual(result['recognitionRoute']['skippedUnneededImages'],1)
+        self.assertEqual(result['recognitionRoute']['appTextImages'],3)
+        self.assertEqual(result['recognitionRoute']['serverOcrFallbackImages'],0)
+        self.assertEqual(len(observed),2)
+
     def test_working_bitmaps_close_between_passes_and_on_native_failure(self):
         from PIL import Image
         for fail in (False,True):
