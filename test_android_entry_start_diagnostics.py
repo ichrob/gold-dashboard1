@@ -39,7 +39,7 @@ class EntryStartDiagnosticsTests(unittest.TestCase):
         for obsolete in former_pin_blockers:
             self.assertNotIn(f'reject("{obsolete}"', start)
         self.assertIn('LocalPinReadStartPolicy.useVerifiedPin(', start)
-        self.assertIn('PhoneRemote.start(this)', start)
+        self.assertIn('PhoneRemote.start(this,resumeAfterOwnerUnlock=true)', start)
         self.assertIn('GoldSearchRun.start()', start)
         self.assertIn('container.addView(startFeedback)', activity)
         self.assertIn('setOnClickListener { startAutomaticTest() }', activity)
