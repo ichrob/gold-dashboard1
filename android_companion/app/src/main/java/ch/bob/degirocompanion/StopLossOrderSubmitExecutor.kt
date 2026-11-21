@@ -9,7 +9,8 @@ import android.view.accessibility.AccessibilityNodeInfo
  */
 internal object StopLossOrderSubmitExecutor {
     fun executeOnce(target: AccessibilityNodeInfo, observedLabel: String): Boolean =
-        target.packageName?.toString() == "nl.degiro.trader" &&
+        !BuildConfig.DEBUG && // Side-by-side lab APK NEVER places real orders.
+            target.packageName?.toString() == "nl.degiro.trader" &&
             observedLabel.trim().equals("Order platzieren", ignoreCase = true) &&
             target.isVisibleToUser && target.isEnabled && target.isClickable &&
             !target.isPassword &&
