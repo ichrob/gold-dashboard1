@@ -212,7 +212,7 @@ class AndroidStableReleaseTests(unittest.TestCase):
             'localCandidates.size !in 1..10', 'SeriesEvidence.validIsin',
             'genericTurboDirectory(nodes)', 'it.editable || it.containsInput',
             'marked.size !in 1..4', 'actionable.size!=1',
-            'form::containsMatchIn', 'descends(it,clickableLauncher)',
+            'hasActualOrderOrPrivateMarker(it,form)', 'descends(it,clickableLauncher)',
             'readOnlyNodes=nodes.mapIndexed',
             'protection(readOnlyNodes)!=null', 'captureGoldList(readOnlyNodes,true)',
             'visible.kind!=Kind.COLLECT', 'visible.isins.any { it !in localCandidates }',
