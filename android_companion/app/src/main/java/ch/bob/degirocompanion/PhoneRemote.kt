@@ -55,7 +55,7 @@ internal object PhoneRemote {
     @Suppress("DEPRECATION")
     private fun holdEntryScreen(c:Context) {
         releaseEntryScreenLease()
-        if(!resumeOnUnlock || !active())return
+        if(!resumeOnUnlock || !active() || !entryOnly)return
         val power=c.getSystemService(Context.POWER_SERVICE) as PowerManager
         val keyguard=c.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
         // Keep an already-unlocked, owner-opened session dimly lit. Never
@@ -71,7 +71,8 @@ internal object PhoneRemote {
     }
     fun pauseForScreenLock(readingInProgress:Boolean):Boolean {
         if(!EntryLockResumePolicy.mayWaitForOwnerUnlock(
-                resumeOnUnlock,entryOnly,active(),readingInProgress))return false
+                resumeOnUnlock,entryOnly,active(),readingInProgress,
+                productReadOnly=!entryOnly && !settingsOnly && !unlockRehearsalOnly))return false
         waitingOnUnlock=true
         releaseEntryScreenLease()
         message=if(unlockRehearsalOnly)
@@ -92,7 +93,9 @@ internal object PhoneRemote {
                 brokerForeground))return false
         waitingOnUnlock=false
         holdEntryScreen(c)
-        message="Entsperrt · DEGIRO wieder sichtbar · Bereitschaft läuft weiter."
+        message=if(entryOnly)
+            "Entsperrt · DEGIRO wieder sichtbar · Bereitschaft läuft weiter."
+        else "Entsperrt · DEGIRO wieder sichtbar · passive Gold-Lesesitzung fortgesetzt. Keine laufende Aufnahme wiederholt."
         if(unlockRehearsalOnly) {
             ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.UNLOCK_TEST_CONFIRMED)
             // A positive result requires actual owner unlock + the expected
@@ -123,8 +126,9 @@ internal object PhoneRemote {
             !accountSettingsOnly && ownerConfirmedProfile==null)) {
             "Sperrtest nur nach ausdrücklichem lokalen Start, ohne Kontoauftrag."
         }
-        require(!resumeAfterOwnerUnlock || entryReadOnly) {
-            "Sperr-Fortsetzung nur für lokale Einstiegskurs-Bereitschaft."
+        require(!resumeAfterOwnerUnlock ||
+            (!accountSettingsOnly && ownerConfirmedProfile==null)) {
+            "Sperr-Fortsetzung nur für ausdrücklich gestartete Nur-Lesen-Sitzungen."
         }
         require(!entryReadOnly || (!accountSettingsOnly && ownerConfirmedProfile==null))
         require(ownerConfirmedProfile==null ||
@@ -156,7 +160,9 @@ internal object PhoneRemote {
             "Trade-Lesesitzung aktiv · kurze Sitzungsabschnitte werden nur bei bestätigtem Trade, entsperrtem Bildschirm und gültiger Freigabe verlängert."
             else if(resumeOnUnlock)
             "Einstiegskurs-Bereitschaft · höchstens 15 Minuten · Sperre wartet auf Entsperrung."
-            else "Handy-Sitzung aktiv · höchstens 15 Minuten · STOPP oder Sperrtaste beendet sie."
+            else if(resumeOnUnlock)
+            "Gold-Lesesitzung aktiv · nach deiner Entsperrung nur im Leerlauf fortsetzbar, höchstens 15 Minuten."
+        else "Handy-Sitzung aktiv · höchstens 15 Minuten · STOPP oder Sperrtaste beendet sie."
         if(unlockRehearsalOnly)ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.UNLOCK_TEST_ARMED)
         holdEntryScreen(c)
         val id=session
