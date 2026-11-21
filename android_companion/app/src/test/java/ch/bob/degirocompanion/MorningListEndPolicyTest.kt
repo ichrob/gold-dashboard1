@@ -88,6 +88,55 @@ class MorningListEndPolicyTest {
             MorningReadPolicy.Action(MorningReadPolicy.Kind.SEARCH,isins=visible)))
     }
 
+    @Test fun nineSeenFourthFooterPhotoToleratesOnlyAnIdentifiedGoldSearchInput() {
+        val seen=(ids+listOf("DE000SQ02JQ6","DE000FG8K0P8","DE000FG77MY4"))
+            .take(9).toSet()
+        val visible=action().isins
+        val collect=action()
+        // Samsung sometimes retains the genuine Gold EditText after the
+        // keyboard closes. It is not an order form and no input is sent here.
+        val gold=MorningReadPolicy.Node("Gold",editable=true,
+            id="nl.degiro.trader:id/search_src_text",focused=false)
+        val footer=page(gold)
+        assertTrue(MorningListEndPolicy.needsFooterRecapture(
+            footer,3,seen,visible,collect))
+        assertFalse(MorningListEndPolicy.needsFooterRecapture(
+            footer,2,seen,visible,collect))
+        assertFalse(MorningListEndPolicy.needsFooterRecapture(
+            footer,4,seen,visible,collect))
+        // Still forbid uploading a 9/10 list as if its identity were proved.
+        assertFalse(MorningListEndPolicy.maySubmitAtEnd(
+            footer,3,seen,visible,collect))
+        // The global Order launcher may be present, but is never a click target.
+        assertTrue(MorningListEndPolicy.needsFooterRecapture(
+            footer+MorningReadPolicy.Node("Order platzieren",clickable=true),
+            3,seen,visible,collect))
+        val ancestor=MorningReadPolicy.Node("",containsInput=true)
+        val child=gold.copy(parent=4)
+        assertTrue(MorningListEndPolicy.needsFooterRecapture(
+            page(ancestor)+child,3,seen,visible,collect))
+        // Any other writable surface, private data, duplicate field or
+        // actual order form blocks the additional photograph.
+        for(unsafe in listOf(
+            gold.copy(text="DE000FD0S0G4"),
+            gold.copy(id="quantity",hint="Anzahl"),
+            gold.copy(password=true),
+            gold.copy(sensitive=true))) {
+            assertFalse(MorningListEndPolicy.needsFooterRecapture(
+                page(unsafe),3,seen,visible,collect))
+        }
+        for(extra in listOf(
+            MorningReadPolicy.Node("",editable=true,id="order-quantity"),
+            MorningReadPolicy.Node("Order bestätigen"),
+            MorningReadPolicy.Node("Limitpreis"),
+            MorningReadPolicy.Node("Mein Portfolio"),
+            MorningReadPolicy.Node("Kontostand"),
+            MorningReadPolicy.Node("Passwort",password=true))) {
+            assertFalse(MorningListEndPolicy.needsFooterRecapture(
+                footer+extra,3,seen,visible,collect))
+        }
+    }
+
     @Test fun oneIndependentGlobalOrderLauncherDoesNotSuppressFourthReadOnlyPhoto() {
         val visible=listOf(ids[0],ids[3])
         val collect=MorningReadPolicy.Action(MorningReadPolicy.Kind.COLLECT,isins=visible)
