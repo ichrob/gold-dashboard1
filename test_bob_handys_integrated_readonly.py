@@ -35,6 +35,14 @@ class IntegratedReadOnlySecurityTests(unittest.TestCase):
         self.assertIn("ProductReadDiagnostics.connected",activity)
         self.assertIn('EXTRA_START_ONCE',activity)
         self.assertIn("Intent.createChooser",activity)
+        # A sideloaded lab APK has a DIFFERENT Android permission identity
+        # from the signed Bob Handy app: offer direct system App Info before
+        # opening Accessibility settings, never attempt to bypass Android.
+        self.assertIn('Settings.ACTION_APPLICATION_DETAILS_SETTINGS',activity)
+        self.assertIn('Uri.fromParts("package",packageName,null)',activity)
+        self.assertIn('Settings.ACTION_ACCESSIBILITY_SETTINGS',activity)
+        self.assertIn('Gesteuert durch eingeschränkte Einstellung',activity)
+
     def test_signed_main_app_has_its_own_one_tap_entry(self):
         main=(JAVA/"MainActivity.kt").read_text()
         self.assertIn("DEGIRO nur erkennen · 45 Sek.",main)
