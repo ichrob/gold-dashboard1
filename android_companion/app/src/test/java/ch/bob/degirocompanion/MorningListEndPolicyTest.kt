@@ -307,6 +307,13 @@ class MorningListEndPolicyTest {
         assertEquals(MorningListEndPolicy.FourthPhotoGate.ALLOWED,outcome)
         assertTrue(MorningListEndPolicy.needsUncoveredFooterCapture(
             normal,3,ten,incomplete,action().isins,action()))
+        // Composite ancestors may repeat the benign navigation label.
+        // Their remaining lines must STILL be scanned for real order fields.
+        assertEquals(MorningListEndPolicy.FourthPhotoGate.ORDER_OR_PRIVATE_SURFACE,
+            MorningListEndPolicy.uncoveredFooterGate(
+                normal+MorningReadPolicy.Node("Gold root",
+                    row="Portfolio\nOrderart\nGold"),
+                3,ten,incomplete,action().isins,action()))
         for(privateView in listOf(
             MorningReadPolicy.Node("Mein Portfolio"),
             MorningReadPolicy.Node("Portfolio 12.345 CHF"),
