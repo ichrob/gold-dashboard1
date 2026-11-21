@@ -1007,47 +1007,76 @@ internal object MorningReadPolicy {
             nodes.any { it.editable || it.containsInput || it.password || it.sensitive } ||
             genericTurboDirectory(nodes)) return null
         val cause=protection(nodes)
+        var readOnlyNodes=nodes
         if(cause!=null) {
-            if(cause!="PROTECTED_ORDER_CONFIRM") return null
-            // The old 10930 reader already knew this isolated launcher.
-            // Re-check it only to authorize a LIST SCROLL, not an order click.
-            val synthetic=nodes+Node("Gold",id="bob:search_input",editable=true)
-            val cleaned=productSearchWithoutLauncher(synthetic) ?: return null
-            if(protection(cleaned)!=null) return null
-            val markers=nodes.indices.filter { i ->
-                listOf(nodes[i].text,nodes[i].description,nodes[i].hint)
+            if(cause!="PROTECTED_ORDER_CONFIRM")return null
+            // The actual Gold WebView can repeat the SAME global launcher as
+            // passive text. An older scroll guard required only one marker,
+            // contradicting the existing read-only ISIN search exception.
+            // This is only a semantic BACKWARD scroll on a pre-existing,
+            // observed Gold product row; never a launcher or order click.
+            val marked=nodes.indices.filter { i ->
+                listOf(nodes[i].text,nodes[i].description,nodes[i].hint,nodes[i].row)
                     .any(orderMarkers.first().second::containsMatchIn)
             }
-            val index=markers.singleOrNull() ?: return null
-            val launcher=nodes[index]
-            val exact=Regex("(?iu)^order platzieren$")
-            if(!canClick(launcher) || launcher.editable || launcher.containsInput ||
-                listOf(launcher.text,launcher.description,launcher.hint)
-                    .filter(String::isNotBlank).any { !exact.matches(normalized(it)) } ||
-                launcher.row.lines().filter(String::isNotBlank).any {
-                    !exact.matches(normalized(it))
-                }) return null
+            if(marked.size !in 1..4)return null
+            val exact=Regex("(?iu)^(order platzieren|place order)$")
+            if(marked.any { i ->
+                val n=nodes[i]
+                !n.enabled || n.editable || n.containsInput || n.password ||
+                    n.sensitive || listOf(n.text,n.description,n.hint,n.row)
+                        .filter(String::isNotBlank)
+                        .flatMap { it.lines() }.filter(String::isNotBlank)
+                        .any { !exact.matches(normalized(it)) }
+            })return null
+            val actionable=marked.filter { canClick(nodes[it]) }
+            if(actionable.size!=1)return null
+            // Genuine order forms cannot be reclassified because they also
+            // happen to contain a harmless global launcher elsewhere.
+            val form=Regex("(?iu)order bestätigen|confirm order|orderart|ordertyp|" +
+                "limitpreis|stückzahl|anzahl kaufen|orderdetails|" +
+                "passwort|password|login|anmelden|portfolio|depotwert")
+            if(nodes.any { n ->
+                listOf(n.text,n.description,n.hint,n.row)
+                    .any(form::containsMatchIn)
+            })return null
             fun descends(child:Int,ancestor:Int):Boolean {
-                var p=nodes[child].parent; var steps=0
+                var p=nodes[child].parent;var steps=0
                 while(p in nodes.indices && steps++<nodes.size) {
                     if(p==ancestor)return true
                     p=nodes[p].parent
                 }
                 return false
             }
-            if(nodes.indices.any { it!=index && descends(it,index) }) return null
-            var p=launcher.parent; var hops=0
-            while(p in nodes.indices && hops++<nodes.size) {
-                // WebView aggregates a product identity into row, while
-                // keeping the wrapper's text empty. Never treat an order
-                // launcher nested inside that product wrapper as global.
-                val parent=nodes[p]
-                if(ids.containsMatchIn(parent.text.uppercase()) ||
-                    ids.containsMatchIn(parent.row.uppercase()))return null
-                p=parent.parent
+            val clickableLauncher=actionable.single()
+            if(nodes.indices.any { it!=clickableLauncher &&
+                    descends(it,clickableLauncher) })return null
+            if(marked.any { marker ->
+                var p=nodes[marker].parent;var hops=0;var productAncestor=false
+                while(p in nodes.indices && hops++<nodes.size) {
+                    if(ids.containsMatchIn(nodes[p].text.uppercase()) ||
+                        ids.containsMatchIn(nodes[p].row.uppercase()))
+                        productAncestor=true
+                    p=nodes[p].parent
+                }
+                productAncestor ||
+                    nodes.indices.any { i -> i!=marker && descends(i,marker) &&
+                        (ids.containsMatchIn(nodes[i].text.uppercase()) ||
+                         ids.containsMatchIn(nodes[i].row.uppercase()) ||
+                         nodes[i].editable || nodes[i].sensitive ||
+                         nodes[i].password)
+                    }
+            })return null
+            // The neutralized copies are used ONLY for checking which
+            // pre-existing product-scoped list container can scroll backward.
+            // Node indices remain identical; no synthetic clickable element.
+            readOnlyNodes=nodes.mapIndexed { i,n ->
+                if(i in marked)n.copy(text="",description="",hint="",row="",
+                    clickable=false,clickAction=false) else n
             }
+            if(protection(readOnlyNodes)!=null)return null
         }
-        val visible=captureGoldList(nodes,true)
+        val visible=captureGoldList(readOnlyNodes,true)
         if(visible.kind!=Kind.COLLECT || visible.isins.isEmpty() ||
             visible.isins.any { it !in localCandidates }) return null
         val candidates=backwardIndices.filter { i ->
