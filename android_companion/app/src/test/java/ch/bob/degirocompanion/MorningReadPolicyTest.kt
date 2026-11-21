@@ -604,6 +604,19 @@ class MorningReadPolicyTest {
             MorningReadPolicy.Node("Order platzieren",clickable=true,
                 row="Order platzieren"))
         assertTrue(MorningReadPolicy.passiveGoldSearchRebuild(page))
+        // One actionable launcher plus a passive WebView duplicate remains
+        // an inert Gold-search rebuild, not a live order confirmation.
+        val duplicate=MorningReadPolicy.Node("Order platzieren",
+            row="Order platzieren")
+        assertTrue(MorningReadPolicy.passiveGoldSearchRebuild(page+duplicate))
+        assertFalse(MorningReadPolicy.passiveGoldSearchRebuild(
+            page+duplicate.copy(clickable=true)))
+        assertFalse(MorningReadPolicy.passiveGoldSearchRebuild(
+            page+duplicate.copy(row="Order platzieren\\nLimitpreis")))
+        assertFalse(MorningReadPolicy.passiveGoldSearchRebuild(
+            page+duplicate.copy(parent=3)))
+        assertFalse(MorningReadPolicy.passiveGoldSearchRebuild(
+            page+duplicate.copy(parent=0)+MorningReadPolicy.Node("Kauf",parent=4)))
         // This classifies a transient view only; it never returns an Action
         // containing a tap, input, order or product index.
         assertFalse(MorningReadPolicy.passiveGoldSearchRebuild(

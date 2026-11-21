@@ -746,14 +746,24 @@ internal object MorningReadPolicy {
             listOf(nodes[i].text,nodes[i].description,nodes[i].hint)
                 .any(orderMarkers.first().second::containsMatchIn)
         }
-        val index=markers.singleOrNull() ?: return false
+        // DEGIRO WebView can expose one actual global launcher and up to
+        // three *passive* accessibility copies. A second actionable order
+        // button is never an inert duplicate. This grants only a brief WAIT,
+        // not a click, text entry, quote read or order operation.
+        if(markers.size !in 1..4)return false
+        val actionable=markers.filter { canClick(nodes[it]) }
+        val index=actionable.singleOrNull() ?: return false
         val launcher=nodes[index]
         val exactOrder=Regex("(?iu)^(order platzieren|place order)$")
-        if(!canClick(launcher) || launcher.editable || launcher.containsInput ||
-            listOf(launcher.text,launcher.description,launcher.hint,launcher.row)
-                .filter(String::isNotBlank)
-                .let { it.isEmpty() || it.any { v -> !exactOrder.matches(normalized(v)) } })
-            return false
+        for(marker in markers) {
+            val n=nodes[marker]
+            val values=listOf(n.text,n.description,n.hint,n.row)
+                .flatMap { it.lines() }.filter(String::isNotBlank)
+            if(!n.enabled || n.editable || n.containsInput ||
+                n.password || n.sensitive || values.isEmpty() ||
+                values.any { !exactOrder.matches(normalized(it)) } ||
+                (marker!=index && canClick(n)))return false
+        }
         fun below(child:Int,ancestor:Int):Boolean {
             var at=nodes[child].parent;var count=0
             while(at in nodes.indices && count++<nodes.size) {
@@ -763,6 +773,13 @@ internal object MorningReadPolicy {
             return false
         }
         if(nodes.indices.any { it!=index && below(it,index) }) return false
+        // A passive duplicate may be an ancestor of the launcher, but not
+        // a parent of another product, control or input (order form wrapper).
+        for(passive in markers.filter { it!=index }) {
+            if(nodes.indices.any { other -> other!=passive &&
+                below(other,passive) && other!=index &&
+                !below(index,other) }) return false
+        }
         val id=Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b")
         var at=launcher.parent;var hops=0
         while(at in nodes.indices && hops++<nodes.size) {
@@ -917,6 +934,14 @@ internal object MorningReadPolicy {
             // stay BLOCK: the actual search must be separately labelled.
             isolatedGoldSearchAfterLauncher(nodes)?.let { return it }
             readOnlyGoldResearchWithOrderLabel(nodes,target,keyboardReady)?.let { return it }
+            // After an exact ISIN was typed, Samsung sometimes drops the
+            // "Hebelprodukte" header while retaining the isolated global
+            // order launcher AND the real search-result title. Reuse the
+            // independently validated product title ONLY. No K/V or order
+            // button can be selected by resultTapIndex.
+            if(!resultOpened) resultTapIndex(nodes,target)?.let { title ->
+                return Action(Kind.RESULT,title,code="GOLD_READONLY_RESULT_RECOVERED")
+            }
             // CRITICAL: do not fall through to importedListSearch(), which
             // may create a synthetic Gold input for SCROLL classification.
             // That older helper must never downgrade a protected form or
