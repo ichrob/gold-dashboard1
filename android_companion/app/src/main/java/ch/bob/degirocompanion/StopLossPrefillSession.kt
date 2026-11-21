@@ -72,6 +72,7 @@ internal object StopLossPrefillSession {
         stage = StopLossPrefillPolicy.Stage.DONE
         status = when(code) {
             "VORBEREITET" -> "Stop-Loss und Anzahl geprüft; noch kein Orderauftrag."
+            "LAB_ORDER_READY_NOT_SENT" -> "LABOR-TEST bestanden: der richtige DEGIRO-Orderknopf wurde erkannt. Er wurde NICHT gedrückt; keine Order aus diesem Test."
             "ORDER_SENDUNG_UNBESTAETIGT" -> "Einmal auf Order platzieren geklickt. Ob DEGIRO die Order angenommen oder erst eine Bestätigung geöffnet hat, bitte direkt in DEGIRO prüfen."
             "ORDER_BUTTON_ABGELEHNT" -> "Orderknopf nicht ausgelöst. DEGIRO selbst prüfen; keine automatische Wiederholung."
             "USER_STOP" -> "Stop-Loss-Vorbereitung durch Bedienung beendet; bisherige Felder manuell prüfen."
