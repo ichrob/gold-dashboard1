@@ -21,6 +21,17 @@ internal object MorningReadPolicy {
         "PROTECTED_ORDER_PRICE" to Regex("(?iu)limitpreis"),
         "PROTECTED_ORDER_QUANTITY" to Regex("(?iu)stückzahl|anzahl kaufen"))
     private fun normalized(value: String) = value.replace(Regex("[\\s\\p{Zs}]+"), " ").trim()
+    /** A read-only Gold page retains the ordinary DEGIRO bottom tab labelled
+     * exactly Portfolio. navigationTree aggregates this leaf into ancestor
+     * row strings with newlines. Skip ONLY the exact single navigation line;
+     * other portfolio/account labels, order fields and secrets remain unsafe.
+     * Used only after independently checking the original Gold list/search. */
+    private fun hasActualOrderOrPrivateMarker(value:String, markers:Regex):Boolean =
+        value.lines().any { line ->
+            val label=normalized(line)
+            label.isNotEmpty() && !label.equals("Portfolio",true) &&
+                markers.containsMatchIn(label)
+        }
     private fun searchLabel(value: String) = Regex("(?iu)^(suche|suchen|search|produkt suchen|produkte suchen|search products|search instruments|instrument suchen|instrumente suchen|suchen nach|name, isin oder symbol|name, isin or symbol|mit namen, isin oder symbol suchen)(?:[.…: ]*)$").matches(normalized(value))
     private fun canClick(n: Node) = n.enabled && (n.clickable || n.clickAction)
     private fun rowSearch(n: Node) = searchLabel(n.row.lines().map { it.trim() }.filter(String::isNotBlank).distinct().joinToString(" "))
@@ -775,7 +786,7 @@ internal object MorningReadPolicy {
             "login|anmelden|kontostand|portfolio|depotwert")
         if(nodes.any { n -> n.password || n.sensitive ||
             listOf(n.text,n.description,n.hint,n.row)
-                .any(unsafe::containsMatchIn) }) return null
+                .any { hasActualOrderOrPrivateMarker(it,unsafe) } }) return null
         fun label(value:String,exact:String)=normalized(value).equals(exact,true)
         // Permit at most one actionable global launcher. Passive copies must
         // contain only that exact label; a second button or mixed order form
@@ -1038,7 +1049,7 @@ internal object MorningReadPolicy {
                 "passwort|password|login|anmelden|portfolio|depotwert")
             if(nodes.any { n ->
                 listOf(n.text,n.description,n.hint,n.row)
-                    .any(form::containsMatchIn)
+                    .any { hasActualOrderOrPrivateMarker(it,form) }
             })return null
             fun descends(child:Int,ancestor:Int):Boolean {
                 var p=nodes[child].parent;var steps=0
