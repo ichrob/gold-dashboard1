@@ -223,6 +223,57 @@ def report_ocr_memory(measurement, outcome, started):
     except Exception:
         pass  # Diagnostics must not change OCR results or protection.
 
+def try_reclaim_ocr_file_cache(used, *, stat_text=None, reclaim_writer=None,
+                               memory_reader=None):
+    """Best-effort cgroup-v2 cache reclaim before a DEFERRED native OCR start.
+
+    Normal admission still requires 196 MiB headroom and the unchanged
+    505-MiB runtime kill threshold. Never subtract cache estimates from
+    memory.current or treat reclaimed bytes as evidence of a verified list.
+    Only request up to 32 MiB from the kernel when >=16 MiB of clean inactive
+    file cache exists; deny/unsupported mounts are harmless no-ops.
+    """
+    if type(used) is not int or used<=0:
+        return None
+    try:
+        if stat_text is None:
+            stat_text=Path('/sys/fs/cgroup/memory.stat').read_text(encoding='ascii')
+        values={}
+        for row in stat_text.splitlines():
+            fields=row.split()
+            if len(fields)==2 and fields[0] in (
+                    'inactive_file','file_dirty','file_writeback'):
+                values[fields[0]]=int(fields[1])
+        inactive=values.get('inactive_file',0)
+        dirty=values.get('file_dirty',0)+values.get('file_writeback',0)
+        clean=max(0,inactive-dirty)
+        if clean<16*1024*1024:
+            return None
+        requested=min(32*1024*1024,clean//2)
+        if requested<8*1024*1024:
+            return None
+        if reclaim_writer is not None:
+            reclaim_writer(requested)
+        else:
+            with open('/sys/fs/cgroup/memory.reclaim','w',encoding='ascii') as stream:
+                stream.write(str(requested))
+        after=(memory_reader or container_memory_bytes)()
+        if type(after) is not int or after<=0:
+            return None
+        # Observation is numbers only; no credentials, OCR text or filenames.
+        with _state_lock:
+            _state['lastOcrCacheReclaim']={
+                'requestedMiB':requested//(1024*1024),
+                'freedMiB':round(max(0,used-after)/(1024*1024),1),
+                'effective':after<used,
+            }
+        return after if after<used else None
+    except (OSError,ValueError,UnicodeError,TypeError):
+        # Render may mount memory.reclaim read-only. Never change the
+        # effective reserve or stop an existing service in that case.
+        return None
+
+
 def guarded_ocr_run(args, *, input, text, capture_output, timeout, check, env, close_fds):
     # Preserve the cgroup-wide fail-closed guard and file-backed streams.
     # Return free parent heap pages before loading the child's native models.
@@ -233,6 +284,12 @@ def guarded_ocr_run(args, *, input, text, capture_output, timeout, check, env, c
     used=container_memory_bytes()
     started=time.monotonic()
     measurement={'beforeBytes':used,'peakBytes':used,'samples':0}
+    if used is not None and used+OCR_START_RESERVE>=OCR_CONTAINER_LIMIT:
+        reclaimed=try_reclaim_ocr_file_cache(used)
+        if reclaimed is not None:
+            used=reclaimed
+            measurement['beforeBytes']=used
+            measurement['peakBytes']=used
     if used is None or used+OCR_START_RESERVE>=OCR_CONTAINER_LIMIT:
         report_ocr_memory(measurement,'deferred',started)
         raise OcrMemoryDeferred('OCR awaiting free container memory')
