@@ -243,6 +243,55 @@ class MorningListEndPolicyTest {
             duplicated,3,ten,ten,visible,action()))
     }
 
+    @Test fun existingGoldSearchEditTextAncestryMayNotSuppressReadOnlyFourthPhoto() {
+        val ten=(ids+listOf("DE000SQ02JQ6","DE000FG8K0P8",
+            "DE000FG77MY4","DE000FG8NHQ3")).toSet()
+        val incomplete=ten-"DE000FG8NHQ3"
+        val footer=page()+MorningReadPolicy.Node("Order platzieren",clickable=true)
+        val parentIndex=footer.size
+        val webView=MorningReadPolicy.Node("Gold preview",containsInput=true)
+        val actualSearch=MorningReadPolicy.Node("Gold",id="search-input",
+            editable=true,hint="Mit Namen, ISIN oder Symbol suchen",parent=parentIndex)
+        val safe=footer+webView+actualSearch
+        assertEquals(MorningListEndPolicy.FourthPhotoGate.ALLOWED,
+            MorningListEndPolicy.uncoveredFooterGate(
+                safe,3,ten,incomplete,action().isins,action()))
+        assertTrue(MorningListEndPolicy.needsUncoveredFooterCapture(
+            safe,3,ten,incomplete,action().isins,action()))
+        // A virtual WebView input with no independently identified real Gold
+        // EditText is NOT a reason to bypass the old protection.
+        assertEquals(MorningListEndPolicy.FourthPhotoGate.UNKNOWN_INPUT,
+            MorningListEndPolicy.uncoveredFooterGate(
+                footer+webView,3,ten,incomplete,action().isins,action()))
+        assertEquals(MorningListEndPolicy.FourthPhotoGate.UNKNOWN_INPUT,
+            MorningListEndPolicy.uncoveredFooterGate(
+                safe+MorningReadPolicy.Node("",editable=true,hint="Anzahl"),
+                3,ten,incomplete,action().isins,action()))
+        assertEquals(MorningListEndPolicy.FourthPhotoGate.UNKNOWN_INPUT,
+            MorningListEndPolicy.uncoveredFooterGate(
+                footer+webView+actualSearch.copy(text="1234"),
+                3,ten,incomplete,action().isins,action()))
+        assertEquals(MorningListEndPolicy.FourthPhotoGate.UNKNOWN_INPUT,
+            MorningListEndPolicy.uncoveredFooterGate(
+                footer+webView+actualSearch.copy(parent=-1),
+                3,ten,incomplete,action().isins,action()))
+        for(form in listOf("Order bestätigen","Limitpreis","Stückzahl","Passwort")) {
+            assertEquals(form,MorningListEndPolicy.FourthPhotoGate.ORDER_OR_PRIVATE_SURFACE,
+                MorningListEndPolicy.uncoveredFooterGate(
+                    safe+MorningReadPolicy.Node(form),
+                    3,ten,incomplete,action().isins,action()))
+        }
+        assertEquals(MorningListEndPolicy.FourthPhotoGate.ACTION_NOT_COLLECT,
+            MorningListEndPolicy.uncoveredFooterGate(
+                safe,3,ten,incomplete,action().isins,
+                MorningReadPolicy.Action(MorningReadPolicy.Kind.BLOCK,
+                    code="PROTECTED_ORDER_CONFIRM")))
+        assertFalse(MorningListEndPolicy.needsUncoveredFooterCapture(
+            safe,4,ten,incomplete,action().isins,action()))
+        assertFalse(MorningListEndPolicy.needsUncoveredFooterCapture(
+            safe,3,ten,ten,action().isins,action()))
+    }
+
     @Test fun fourImagesMayBeSubmittedButNeverCountAsLocalCompletion() {
         assertTrue(MorningListEndPolicy.maySubmitAtCaptureLimit(4,ids.toSet()))
         assertFalse(MorningListEndPolicy.maySubmitAtCaptureLimit(3,ids.toSet()))
