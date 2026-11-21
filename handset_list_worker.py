@@ -686,7 +686,9 @@ def tick(connect,runner=process):
         request=dict(payload)
         # Private value from the durable server receipt, NEVER from the
         # handset-uploaded list; admission recovery cannot change its evidence.
-        request['_memoryDeferrals']=memory_deferrals(previous)
+        deferred_count=memory_deferrals(previous)
+        if deferred_count>=OCR_RECOVERY_AFTER_DEFERRALS:
+            request['_memoryDeferrals']=deferred_count
         if alternate:request['_ocr_mode']='enhanced'
         if runner is process:
             parsed=runner(request,payload['images'][-1]['at'],progress=progress,
