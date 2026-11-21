@@ -21,6 +21,9 @@ class WorkerTests(unittest.TestCase):
         fourth['appText']={'before':['forged tenth row'],
                            'after':['forged tenth row']}
         value['images'] += [third,fourth]
+        for image in value['images'][:3]:
+            image['appText']={'before':['existing original'],
+                              'after':['existing original']}
         self.assertEqual(android_list.non_evidentiary_footer_indices(value['images']),{3})
         self.assertEqual(android_list.validate(value,NOW),value)
         observed=[]
@@ -46,8 +49,8 @@ class WorkerTests(unittest.TestCase):
                                   '2026-11-21T09:40:00Z')
         self.assertEqual(run.call_count,2)
         self.assertEqual(result['recognitionRoute']['skippedUnneededImages'],1)
-        self.assertEqual(result['recognitionRoute']['appTextImages'],0)
-        self.assertEqual(result['recognitionRoute']['serverOcrFallbackImages'],3)
+        self.assertEqual(result['recognitionRoute']['appTextImages'],3)
+        self.assertEqual(result['recognitionRoute']['serverOcrFallbackImages'],0)
         self.assertEqual(len(observed),2)
 
     def test_working_bitmaps_close_between_passes_and_on_native_failure(self):
