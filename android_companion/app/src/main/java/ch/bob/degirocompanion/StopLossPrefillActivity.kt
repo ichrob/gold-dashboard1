@@ -84,7 +84,9 @@ class StopLossPrefillActivity : Activity() {
         }
         content.addView(submissionConsent)
         content.addView(Button(this).apply {
-            isAllCaps=false; text="Diese eine Verkaufsorder nach Bestätigung absenden"
+            isAllCaps=false; text=if(BuildConfig.DEBUG)
+                "LABOR · Prüfung bis zum Orderknopf · NICHT absenden"
+                else "Diese eine Verkaufsorder nach Bestätigung absenden"
             setOnClickListener { submitOrder() }
         })
         content.addView(Button(this).apply {
@@ -150,10 +152,14 @@ class StopLossPrefillActivity : Activity() {
         val launch=packageManager.getLaunchIntentForPackage("nl.degiro.trader")
         if(launch==null) { status.text="DEGIRO-App nicht installiert.";return }
         AlertDialog.Builder(this)
-            .setTitle("ECHTE Verkaufsorder verbindlich senden?")
-            .setMessage("Dies kann eine echte Verkaufsorder auslösen.\n\nISIN: ${draft.isin}\nVERKAUF: ${draft.quantity} Stück\nTyp: Stop Loss\nStoppreis: ${draft.stopText} EUR\n\nNach deinem Klick darf Bob genau EINMAL „Order platzieren“ antippen, aber nur wenn DEGIRO noch exakt diese ISIN, Verkaufsrichtung, Orderart und beide Zahlen zeigt. Keine automatische Wiederholung. Falls DEGIRO danach eine weitere Bestätigungsseite öffnet, bestätigst du diese selbst. Kontrolliere anschließend den echten Orderstatus bei DEGIRO.")
+            .setTitle(if(BuildConfig.DEBUG)
+                "LABOR · Orderknopf nur prüfen – KEINE echte Order"
+                else "ECHTE Verkaufsorder verbindlich senden?")
+            .setMessage((if(BuildConfig.DEBUG) "LABOR: Der echte Orderknopf wird NICHT gedrückt. Keine Echtgeldorder durch diesen Test.\\n\\n"
+                else "Dies kann eine echte Verkaufsorder auslösen.\\n\\n") + "\n\nISIN: ${draft.isin}\nVERKAUF: ${draft.quantity} Stück\nTyp: Stop Loss\nStoppreis: ${draft.stopText} EUR\n\nNach deinem Klick darf Bob genau EINMAL „Order platzieren“ antippen, aber nur wenn DEGIRO noch exakt diese ISIN, Verkaufsrichtung, Orderart und beide Zahlen zeigt. Keine automatische Wiederholung. Falls DEGIRO danach eine weitere Bestätigungsseite öffnet, bestätigst du diese selbst. Kontrolliere anschließend den echten Orderstatus bei DEGIRO.")
             .setNegativeButton("Nicht absenden",null)
-            .setPositiveButton("Ja, diese eine echte Order senden") { _,_ ->
+            .setPositiveButton(if(BuildConfig.DEBUG) "Laborprüfung durchführen · ohne Senden"
+                else "Ja, diese eine echte Order senden") { _,_ ->
                 submissionConsent.isChecked=false
                 if(!StopLossPrefillSession.authorizeSubmission(draft,SystemClock.elapsedRealtime())) {
                     status.text="Freigabe abgelaufen, keine Order gesendet."
