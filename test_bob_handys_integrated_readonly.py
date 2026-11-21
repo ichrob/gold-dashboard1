@@ -19,7 +19,11 @@ class IntegratedReadOnlySecurityTests(unittest.TestCase):
         activity=(JAVA/"DegiroReadOnlyActivity.kt").read_text()
         service=(JAVA/"ProductReadService.kt").read_text()
         section=service.split("    // Explicit, passive, foreground-only DEGIRO form detection.")[1].split(
-            "    // Only package/type metadata is used. Never read or retain event text.")[0]
+            "    // Dedicated local-only Stop Loss")[0]
+        # The adjacent owner-approved Stop Loss form service is NOT the passive
+        # observer; keep this assertion bound to the read-only code only.
+        self.assertIn("    // Dedicated local-only Stop Loss",service)
+        self.assertIn("    // Only package/type metadata is used. Never read or retain event text.",service)
         self.assertIn("DegiroStopLossReadOnly.inspect(snapshot)",section)
         for source in (policy,section):
             for prohibited in ("performAction(", "dispatchGesture(", "ACTION_CLICK",
