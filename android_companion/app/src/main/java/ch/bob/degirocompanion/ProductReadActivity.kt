@@ -258,9 +258,9 @@ class ProductReadActivity : Activity() {
             // Pure local mock; no DEGIRO app accessed.
             startActivity(Intent(this,StopLossSimulationActivity::class.java))
         }
-        button("Stop-Loss-Felder in DEGIRO vorbereiten · ohne Order") {
-            // Separate local confirmation, never an automatic broker order
-            // and never a remote command. Explicitly review held position.
+        button("Stop-Loss vorbereiten und nach separater Freigabe Order senden") {
+            // Separate local confirmations for form preparation and one real order.
+            // No remote submission commands or blanket authorizations.
             startActivity(Intent(this,StopLossPrefillActivity::class.java))
         }
         button("Einstiegskurs-Navigation sofort testen · ohne Signal") {
