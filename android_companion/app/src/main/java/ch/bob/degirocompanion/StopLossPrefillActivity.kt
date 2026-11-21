@@ -155,8 +155,16 @@ class StopLossPrefillActivity : Activity() {
             .setTitle(if(BuildConfig.DEBUG)
                 "LABOR · Orderknopf nur prüfen – KEINE echte Order"
                 else "ECHTE Verkaufsorder verbindlich senden?")
-            .setMessage((if(BuildConfig.DEBUG) "LABOR: Der echte Orderknopf wird NICHT gedrückt. Keine Echtgeldorder durch diesen Test.\\n\\n"
-                else "Dies kann eine echte Verkaufsorder auslösen.\\n\\n") + "\n\nISIN: ${draft.isin}\nVERKAUF: ${draft.quantity} Stück\nTyp: Stop Loss\nStoppreis: ${draft.stopText} EUR\n\nNach deinem Klick darf Bob genau EINMAL „Order platzieren“ antippen, aber nur wenn DEGIRO noch exakt diese ISIN, Verkaufsrichtung, Orderart und beide Zahlen zeigt. Keine automatische Wiederholung. Falls DEGIRO danach eine weitere Bestätigungsseite öffnet, bestätigst du diese selbst. Kontrolliere anschließend den echten Orderstatus bei DEGIRO.")
+            .setMessage(
+                (if(BuildConfig.DEBUG)
+                    "LABOR: Dieser Test kann KEINE echte Order absenden.\n\n"
+                 else "Dies kann eine echte Verkaufsorder auslösen.\n\n") +
+                "ISIN: ${draft.isin}\nVERKAUF: ${draft.quantity} Stück\nTyp: Stop Loss\nStoppreis: ${draft.stopText} EUR" +
+                (if(BuildConfig.DEBUG)
+                    "\n\nBob prüft nach deiner Bestätigung die echte DEGIRO-Maske und den Orderknopf, DRÜCKT ihn aber NICHT. Keine Echtgeldorder durch diesen Test."
+                 else
+                    "\n\nNach deinem Klick darf Bob genau EINMAL „Order platzieren“ antippen, aber nur wenn DEGIRO noch exakt diese ISIN, Verkaufsrichtung, Orderart und beide Zahlen zeigt. Keine automatische Wiederholung. Falls DEGIRO danach eine weitere Bestätigungsseite öffnet, bestätigst du diese selbst. Kontrolliere anschließend den echten Orderstatus bei DEGIRO.")
+            )
             .setNegativeButton("Nicht absenden",null)
             .setPositiveButton(if(BuildConfig.DEBUG) "Laborprüfung durchführen · ohne Senden"
                 else "Ja, diese eine echte Order senden") { _,_ ->
