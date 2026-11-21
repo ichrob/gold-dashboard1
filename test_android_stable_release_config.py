@@ -117,7 +117,16 @@ class AndroidStableReleaseTests(unittest.TestCase):
         # The extra action is one original 10930-style BACKWARD scroll on
         # a captured, checksum-valid local Gold list while restoring search.
         # It is not a new order, click or form-field action.
-        self.assertEqual(service.count('performAction('), 13)
+        # A single extra Android performAction is authorized ONLY for a
+        # verified Gold-list footer after three original read-only pictures.
+        # Keep the exact action-call total pinned; no order tap is admitted.
+        self.assertEqual(service.count('performAction('), 14)
+        self.assertIn(
+            "footerFirst && listImages.length()==3 && !listGapReframeSent",
+            service)
+        self.assertIn(
+            "nodes[target].performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)",
+            service)
         return_scroll = service.split('private fun returnToSearchWhileImporting(', 1)[1].split(
             'private fun deliverMorningList(', 1)[0]
         for guard in [
