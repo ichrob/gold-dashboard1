@@ -25,7 +25,8 @@ internal object StopLossDraftCodec {
     fun parse(raw: String, nowMs: Long): StopLossPrefillDraft? {
         val parts = raw.trim().split('|')
         if (parts.size != 6 || parts[0] != "BOB-STOP/1" || parts[2] != "EUR" ||
-            !isinPattern.matches(parts[1]) || !amountPattern.matches(parts[4])) return null
+            !isinPattern.matches(parts[1]) || !SeriesEvidence.validIsin(parts[1]) ||
+            !amountPattern.matches(parts[4])) return null
         val quantity = parts[3].toIntOrNull()?.takeIf { it in 1..1_000_000 } ?: return null
         val at = parts[5].toLongOrNull() ?: return null
         if (at > nowMs || nowMs - at > MAX_AGE_MS) return null
