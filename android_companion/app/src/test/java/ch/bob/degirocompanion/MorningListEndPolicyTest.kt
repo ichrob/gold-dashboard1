@@ -196,7 +196,7 @@ class MorningListEndPolicyTest {
             MorningReadPolicy.Node("",password=true),
             MorningReadPolicy.Node("",editable=true,hint="Anzahl"),
             MorningReadPolicy.Node("",sensitive=true),
-            MorningReadPolicy.Node("Order platzieren",clickable=true,parent=1))) {
+            MorningReadPolicy.Node("",containsInput=true))) {
             assertFalse("Unsafe footer $unsafe",MorningListEndPolicy.needsUncoveredFooterCapture(
                 page(unsafe),3,ten,incomplete,visible,collected))
         }
@@ -205,6 +205,42 @@ class MorningListEndPolicyTest {
         assertFalse(MorningListEndPolicy.needsUncoveredFooterCapture(
             page(),3,ten,incomplete,visible,
             MorningReadPolicy.Action(MorningReadPolicy.Kind.SEARCH,isins=visible)))
+    }
+
+    @Test fun fourthGoldPhotoIgnoresOrderLauncherTextButNeverOrderForms() {
+        val ten=(ids+listOf("DE000SQ02JQ6","DE000FG8K0P8",
+            "DE000FG77MY4","DE000FG8NHQ3")).toSet()
+        val incomplete=ten-"DE000FG8NHQ3"
+        val visible=action().isins
+        val base=page()
+        // The *photo* may read the Gold footer even when Android repeats
+        // a harmless global Order launcher in different wrappers.
+        val launcher=MorningReadPolicy.Node("Order platzieren",clickable=true)
+        val duplicated=base+launcher+launcher.copy(clickable=false)
+        assertTrue(MorningListEndPolicy.needsUncoveredFooterCapture(
+            duplicated,3,ten,incomplete,visible,action()))
+        // No action ever targets the launcher; even a copy under a product
+        // card is harmless for this one already-authorized cropped photo.
+        assertTrue(MorningListEndPolicy.needsUncoveredFooterCapture(
+            base+launcher.copy(parent=1),3,ten,incomplete,visible,action()))
+        // A true order form, login, multiple edit fields or sensitive content
+        // can never be photographed by this read-only fallback.
+        for(extra in listOf(
+            MorningReadPolicy.Node("Order bestätigen"),
+            MorningReadPolicy.Node("Orderart"),
+            MorningReadPolicy.Node("Limitpreis"),
+            MorningReadPolicy.Node("Stückzahl"),
+            MorningReadPolicy.Node("Konto",sensitive=true),
+            MorningReadPolicy.Node("Mein Depotwert"),
+            MorningReadPolicy.Node("Passwort"),
+            MorningReadPolicy.Node("",containsInput=true),
+            MorningReadPolicy.Node("",editable=true))) {
+            assertFalse("Unsafe footer: $extra",
+                MorningListEndPolicy.needsUncoveredFooterCapture(
+                    duplicated+extra,3,ten,incomplete,visible,action()))
+        }
+        assertFalse(MorningListEndPolicy.needsUncoveredFooterCapture(
+            duplicated,3,ten,ten,visible,action()))
     }
 
     @Test fun fourImagesMayBeSubmittedButNeverCountAsLocalCompletion() {
