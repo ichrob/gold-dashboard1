@@ -11,6 +11,16 @@ class EntryLockResumePolicyTest {
         assertFalse(EntryLockResumePolicy.mayWaitForOwnerUnlock(true,false,true,false))
         assertFalse(EntryLockResumePolicy.mayWaitForOwnerUnlock(true,true,false,false))
         assertFalse(EntryLockResumePolicy.mayWaitForOwnerUnlock(true,true,true,true))
+        // Point 4: an owner-started Gold product session may keep its IDLE
+        // read-only ticket after screen-off, but cannot resume an active scan.
+        assertTrue(EntryLockResumePolicy.mayWaitForOwnerUnlock(
+            true,false,true,false,productReadOnly=true))
+        assertFalse(EntryLockResumePolicy.mayWaitForOwnerUnlock(
+            true,false,true,true,productReadOnly=true))
+        assertFalse(EntryLockResumePolicy.mayWaitForOwnerUnlock(
+            false,false,true,false,productReadOnly=true))
+        assertFalse(EntryLockResumePolicy.mayWaitForOwnerUnlock(
+            true,false,false,false,productReadOnly=true))
     }
 
     @Test fun noResumptionWithoutUnexpiredSessionUnlockedDeviceAndBroker() {
