@@ -151,7 +151,7 @@ class StopLossPrefillActivity : Activity() {
         if(launch==null) { status.text="DEGIRO-App nicht installiert.";return }
         AlertDialog.Builder(this)
             .setTitle("ECHTE Verkaufsorder verbindlich senden?")
-            .setMessage("Dies kann eine echte Verkaufsorder auslösen.\\n\\nISIN: ${draft.isin}\\nVERKAUF: ${draft.quantity} Stück\\nTyp: Stop Loss\\nStoppreis: ${draft.stopText} EUR\\n\\nNach deinem Klick darf Bob genau EINMAL „Order platzieren“ antippen, aber nur wenn DEGIRO noch exakt diese ISIN, Verkaufsrichtung, Orderart und beide Zahlen zeigt. Keine automatische Wiederholung. Falls DEGIRO danach eine weitere Bestätigungsseite öffnet, bestätigst du diese selbst. Kontrolliere anschließend den echten Orderstatus bei DEGIRO.")
+            .setMessage("Dies kann eine echte Verkaufsorder auslösen.\n\nISIN: ${draft.isin}\nVERKAUF: ${draft.quantity} Stück\nTyp: Stop Loss\nStoppreis: ${draft.stopText} EUR\n\nNach deinem Klick darf Bob genau EINMAL „Order platzieren“ antippen, aber nur wenn DEGIRO noch exakt diese ISIN, Verkaufsrichtung, Orderart und beide Zahlen zeigt. Keine automatische Wiederholung. Falls DEGIRO danach eine weitere Bestätigungsseite öffnet, bestätigst du diese selbst. Kontrolliere anschließend den echten Orderstatus bei DEGIRO.")
             .setNegativeButton("Nicht absenden",null)
             .setPositiveButton("Ja, diese eine echte Order senden") { _,_ ->
                 submissionConsent.isChecked=false
