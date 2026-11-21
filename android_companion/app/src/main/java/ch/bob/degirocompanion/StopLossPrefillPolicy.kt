@@ -53,7 +53,7 @@ internal object StopLossPrefillPolicy {
         val bottom: Int = 0
     )
     data class Frame(val app: String, val nodes: List<Node>)
-    enum class Stage { OPEN_FORM, VERIFY_FORM, ORDER_TYPE, CHOOSE_STOP, WRITE_STOP, VERIFY_STOP, WRITE_QUANTITY, VERIFY_QUANTITY, DONE }
+    enum class Stage { OPEN_FORM, VERIFY_FORM, ORDER_TYPE, CHOOSE_STOP, WRITE_STOP, VERIFY_STOP, WRITE_QUANTITY, VERIFY_QUANTITY, WAIT_OWNER, SUBMIT_ORDER, DONE }
     enum class Kind { CLICK, WRITE, ADVANCE, DONE, BLOCK }
     data class Decision(val kind: Kind, val index: Int = -1, val text: String = "", val next: Stage = Stage.DONE, val code: String = "")
 
@@ -160,6 +160,7 @@ internal object StopLossPrefillPolicy {
                     Decision(Kind.DONE,next=Stage.DONE)
                 else block("ANZAHL_EINGABE_NICHT_BESTAETIGT")
             }
+            Stage.WAIT_OWNER, Stage.SUBMIT_ORDER -> block("SEPARATE_OWNER_ORDER_FREIGABE_ERFORDERLICH")
             Stage.DONE -> Decision(Kind.DONE,next=Stage.DONE)
         }
     }
